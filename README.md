@@ -1,6 +1,6 @@
 ShareVol
 ========
-Lightweight volume viewer in WebGL 
+Lightweight volume viewer in WebGL http://okaluza.github.io/sharevol
 
 Copyright (c) 2014, Monash University. All rights reserved.  
 Author: Owen Kaluza - owen.kaluza ( at ) monash.edu
@@ -29,12 +29,13 @@ Courtesy of http://volvis.org/ Rotational C-arm x-ray scan of a human foot. Tiss
 
 Other parameter files can be specified by passing a url with the *data* parameter, eg: *index.html?data=myparams.json* (TODO: specify other URL options)
 
-The simplest way to view your own data set is fork this project and edit/replace "data.jpg" and "default.json".
+The simplest way to view your own data set is fork this project and edit/replace "data.jpg" and "default.json".  
+(If you merge changes into the gh-pages branch, your data should then be viewable at http://username.github.io/sharevol)
 
 TODO: describe parameters in json config.  
 
-TO enable the volume renderer, ensure the property "volume" exists.  
-TO enable the slice viewer, ensure the property "slicer" exists.  
+- To enable the volume renderer, ensure the property "volume" exists.  
+- To enable the slice viewer, ensure the property "slicer" exists.  
 
 TODO: Describe UI options and features.
 
@@ -76,4 +77,6 @@ http://www.dannyruijters.nl/cubicinterpolation/
 
 Please cite their paper if you use the tricubic interpolation feature in any published work.
 See: http://www.dannyruijters.nl/cubicinterpolation/license.txt
+
+(If you don't wish to use it, just delete the interpolate_tricubic_fast() function from index.html)
 
