@@ -34,7 +34,7 @@ function Volume(props, image, mobile, parentEl) {
 
   this.width = this.height = 0; //Auto-size
 
-  this.webgl = new WebGL(this.canvas, {antialias: true, premultipliedAlpha: true});
+  this.webgl = new WebGL(this.canvas);
   this.gl = this.webgl.gl;
 
   this.rotating = false;
@@ -47,6 +47,7 @@ function Volume(props, image, mobile, parentEl) {
   this.scale = [1, 1, 1];
   this.orientation = 1.0; //1.0 for RH, -1.0 for LH
   this.fov = 45.0;
+  this.focalLength = 1.0 / Math.tan(0.5 * this.fov * Math.PI/180);
   this.resolution = props["res"];
 
   //Calculated scaling
@@ -107,15 +108,17 @@ function Volume(props, image, mobile, parentEl) {
   this.webgl.loadTexture(image, this.gl.LINEAR);
 
   //Compile the shaders
+  var IE11 = !!window.MSInputMethodContext;  //More evil user-agent sniffing, broken WebGL on windows forces me to do this
   this.lineprogram = new WebGLProgram(this.gl, 'line-vs', 'line-fs');
   if (this.lineprogram.errors) OK.debug(this.lineprogram.errors);
   this.lineprogram.setup(["aVertexPosition", "aVertexColour"], ["uColour", "uAlpha"]);
     this.gl.vertexAttribPointer(this.lineprogram.attributes["aVertexPosition"], this.linePositionBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
     this.gl.vertexAttribPointer(this.lineprogram.attributes["aVertexColour"], this.lineColourBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
 
-  var defines = "const highp vec2 slices = vec2(" + this.tiles[0] + "," + this.tiles[1] + ");\n";
+  var defines = "precision highp float; const highp vec2 slices = vec2(" + this.tiles[0] + "," + this.tiles[1] + ");\n";
+  defines += (IE11 ? "#define IE11\n" : "#define NOT_IE11\n");
   var maxSamples = mobile ? 256 : 1024;
-  defines += "const int maxSamples = " + maxSamples + ";\n\n\n\n\n\n\n"; //Extra newlines so errors in main shader have correct line no
+  defines += "const int maxSamples = " + maxSamples + ";\n\n\n\n\n\n"; //Extra newlines so errors in main shader have correct line #
   OK.debug(defines);
 
   var fs = getSourceFromElement('ray-fs');
@@ -130,7 +133,7 @@ function Volume(props, image, mobile, parentEl) {
 
   this.gl.enable(this.gl.DEPTH_TEST);
   this.gl.clearColor(0, 0, 0, 0);
-  //this.gl.clearColor(this.background.red/255, this.background.green/255, this.background.blue/255, 1.0);  
+  //this.gl.clearColor(this.background.red/255, this.background.green/255, this.background.blue/255, 0.0);
     this.gl.enable(this.gl.BLEND);
     this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
   this.gl.depthFunc(this.gl.LEQUAL);
@@ -204,6 +207,8 @@ Volume.prototype.addGUI = function(gui) {
   var f = this.gui.addFolder('Volume');
   f.add(this.properties, 'lowPowerDevice');
   f.add(this.properties, 'usecolourmap');
+  this.properties.samples = Math.floor(this.properties.samples);
+  if (this.properties.samples % 32 > 0) this.properties.samples -= this.properties.samples % 32;
   f.add(this.properties, 'samples', 32, 1024, 32);
   f.add(this.properties, 'density', 0.0, 50.0, 1.0);
   f.add(this.properties, 'brightness', -1.0, 1.0, 0.05);
@@ -230,7 +235,7 @@ Volume.prototype.addGUI = function(gui) {
   f1.add(this.properties, 'isovalue', 0.0, 1.0, 0.01);
   f1.add(this.properties, 'drawWalls');
   f1.add(this.properties, 'isoalpha', 0.0, 1.0, 0.01);
-  f1.add(this.properties, 'isosmooth', 0.01, 3.0, 0.01);
+  f1.add(this.properties, 'isosmooth', 0.1, 3.0, 0.1);
   f1.addColor(this.properties, 'isocolour');
   //f1.open();
 
@@ -299,7 +304,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
     }
   }
   //Reset to auto-size...
-  this.width = this.height = 0;
+  //this.width = this.height = 0;
   //console.log(this.width + "," + this.height);
 
   this.camera();
@@ -331,8 +336,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
     this.gl.uniform1i(this.program.uniforms["uTransferFunction"], 1);
     this.gl.uniform1i(this.program.uniforms["uEnableColour"], this.properties.usecolourmap);
     this.gl.uniform1i(this.program.uniforms["uFilter"], lowquality ? false : this.properties.tricubicFilter);
-      var focalLength = 1.0 / Math.tan(0.5 * this.fov * Math.PI/180);  
-    this.gl.uniform1f(this.program.uniforms["uFocalLength"], focalLength);
+    this.gl.uniform1f(this.program.uniforms["uFocalLength"], this.focalLength);
     this.gl.uniform2fv(this.program.uniforms["uWindowSize"], new Float32Array([this.gl.viewportWidth, this.gl.viewportHeight]));
 
     var bbmin = [this.properties.Xmin, this.properties.Ymin, this.properties.Zmin];
@@ -365,6 +369,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
     //this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.webgl.vertexPositionBuffer);
     //this.gl.vertexAttribPointer(this.program.attributes["aVertexPosition"], this.webgl.vertexPositionBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
     //this.webgl.setMatrices();
+
     this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.webgl.vertexPositionBuffer.numItems);
 
   } else {
@@ -486,7 +491,7 @@ Volume.prototype.timeAction = function(action, start) {
     if (elapsed < 50) 
       window.requestAnimationFrame(logTime); //Not enough time, assume triggered too early, try again
     else {
-      OK.debug(action + " took: " + (elapsed / 1000) + " seconds");
+      console.log(action + " took: " + (elapsed / 1000) + " seconds");
       /*if (elapsed > 200 && this.quality > 32) {
         this.quality = Math.floor(this.quality * 0.5);
         OK.debug("Reducing quality to " + this.quality + " samples");

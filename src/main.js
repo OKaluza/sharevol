@@ -22,8 +22,6 @@ var mobile;
 
 function initPage() {
   window.onresize = autoResize;
-  //Save props on exit
-  window.onbeforeunload = saveData;
 
   //Create tool windows
   info = new Toolbox("info");
@@ -181,11 +179,14 @@ function loadTexture() {
         gui.add({"Restore" : function() {resetFromData(props);}}, 'Restore');
         gui.add({"Export" : function() {exportData();}}, 'Export');
         gui.add({"loadFile" : function() {document.getElementById('fileupload').click();}}, 'loadFile'). name('Load Image file');
-        gui.add({"ColourMap" : function() {window.colourmaps.toggle();}}, 'ColourMap');
+        gui.add({"ColourMaps" : function() {window.colourmaps.toggle();}}, 'ColourMaps');
 
         if (volume) volume.addGUI(gui);
         if (slicer) slicer.addGUI(gui);
       }
+
+      //Save props on exit
+      window.onbeforeunload = saveData;
     }
   }
   );
