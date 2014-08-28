@@ -19,9 +19,9 @@
     // Set properties
     this.properties = {};
     this.properties.show = true;
-    this.X = Math.round(this.res[0] / 2);
-    this.Y = Math.round(this.res[1] / 2);
-    this.Z = Math.round(this.res[2] / 2);
+    this.properties.X = Math.round(this.res[0] / 2);
+    this.properties.Y = Math.round(this.res[1] / 2);
+    this.properties.Z = Math.round(this.res[2] / 2);
     this.properties.brightness = 0.0;
     this.properties.contrast = 1.0;
     this.properties.power = 1.0;
@@ -39,7 +39,7 @@
     if (props.slicer) this.load(props.slicer);
 
     this.canvas = document.createElement("canvas");
-    this.canvas.style.cssText = "position: absolute; bottom: 0px; margin: 0px; padding: 0px; border: none; background: rgba(0,0,0,0); z-index: 20; pointer-events: none;";
+    this.canvas.style.cssText = "position: absolute; bottom: 0px; margin: 0px; padding: 0px; border: none; background: rgba(0,0,0,0); pointer-events: none;";
 
     this.doLayout();
 
@@ -89,7 +89,7 @@
     //f1.add(this.properties, 'X', 0, this.res[0], 1).listen();
     //f1.add(this.properties, 'Y', 0, this.res[1], 1).listen();
     //f1.add(this.properties, 'Z', 0, this.res[2], 1).listen();
-    f1.add(this.properties, 'zoom', 0.01, 2.0, 0.1).onFinishChange(function(l) {that.doLayout(); that.draw();});
+    f1.add(this.properties, 'zoom', 0.01, 4.0, 0.1).onFinishChange(function(l) {that.doLayout(); that.draw();});
 
     f1.add(this.properties, 'brightness', -1.0, 1.0, 0.01);
     f1.add(this.properties, 'contrast', 0.0, 3.0, 0.01);
@@ -117,6 +117,8 @@
   }
 
   Slicer.prototype.setX = function(val) {this.properties.X = val * this.res[0]; this.draw();}
+
+
   Slicer.prototype.setY = function(val) {this.properties.Y = val * this.res[1]; this.draw();}
   Slicer.prototype.setZ = function(val) {this.properties.Z = val * this.res[2]; this.draw();}
 
@@ -126,17 +128,31 @@
     var x = 0;
     var y = 0;
     var xmax = 0;
+    var ymax = 0;
     var rotate = 0;
+    var alignTop = true;
 
     removeChildren(this.container);
 
     var that = this;
+    var buffer = "";
+    var rowHeight = 0, rowWidth = 0;
     var addViewer = function(idx) {
-      var v = new SliceView(that, x, y, idx, rotate);
+      var mag = 1.0;
+      if (buffer) mag = parseFloat(buffer);
+      var v = new SliceView(that, x, y, idx, rotate, mag);
       that.viewers.push(v);
       that.container.appendChild(v.div);
-      x += v.viewport.width + 5; //Offset by previous width
-      if (x > xmax) xmax = x;
+
+//      x += v.viewport.width + 5; //Offset by previous width
+//      var h = v.viewport.height + 5;
+//      if (h > rowHeight) rowHeight = h;
+//      if (x > xmax) xmax = x;
+
+      y += v.viewport.height + 5; //Offset by previous height
+      var w = v.viewport.width + 5;
+      if (w > rowWidth) rowWidth = w;
+      if (y > ymax) ymax = y;
     }
 
     //Process based on layout
@@ -161,20 +177,48 @@
           addViewer(2);
           break;
         case '|':
-          x = 0;
-          y += this.viewers[this.viewers.length-1].viewport.height + 5; //Offset by previous height
+//          x = 0;
+//          y += rowHeight; //this.viewers[this.viewers.length-1].viewport.height + 5; //Offset by previous height
+//          rowHeight = 0;
+
+          y = 0;
+          x += rowWidth;
+          rowWidth = 0;
           break;
         case '_':
           this.flipY = true;
           break;
+        case '-':
+          alignTop = false;
+          break;
+        default:
+          //Add other chars to buffer, if a number will be used as zoom
+          buffer += c;
+          continue;
       }
+      //Clear buffer
+      buffer = "";
     }
 
-    this.width = xmax;
-    this.height = y + this.viewers[this.viewers.length-1].viewport.height;
+//    this.width = xmax;
+//    this.height = y + rowHeight; //this.viewers[this.viewers.length-1].viewport.height;
+
+    this.width = x + rowWidth;
+    this.height = ymax;
 
     //Restore the main canvas
     this.container.appendChild(this.canvas);
+
+    //Align to top or bottom?
+    //console.log(this.height);
+    //console.log(this.height + " : top? " + alignTop);
+    if (alignTop) {
+      this.container.style.bottom = "";
+      this.container.style.top = (this.height + 10) + "px";
+    } else {
+      this.container.style.top = undefined;
+      this.container.style.bottom = 10 + "px";
+    }
   }
 
   Slicer.prototype.loadImage = function(image) {
@@ -292,10 +336,11 @@
     this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.webgl.vertexPositionBuffer.numItems);
   }
 
-  function SliceView(slicer, x, y, axis, rotate) {
+  function SliceView(slicer, x, y, axis, rotate, magnify) {
     this.axis = axis;
     this.slicer = slicer;
 
+    this.magnify = magnify || 1.0;
     this.origin = [0.5,0.5];
     this.rotate = rotate || 0;
 
@@ -305,8 +350,8 @@
     if (axis == 0) this.i = 2;
     if (axis == 1) this.j = 2;
 
-    var w = Math.round(slicer.dims[this.i] * slicer.properties.zoom);
-    var h = Math.round(slicer.dims[this.j] * slicer.properties.zoom);
+    var w = Math.round(slicer.dims[this.i] * slicer.properties.zoom * this.magnify);
+    var h = Math.round(slicer.dims[this.j] * slicer.properties.zoom * this.magnify);
 
     if (this.rotate == 90)
       this.viewport = new Viewport(x, y, h, w);
@@ -315,7 +360,7 @@
   
     //Border and mouse interaction element
     this.div = document.createElement("div");
-    this.div.style.cssText = "padding: 0px; margin: 0px; outline: 2px solid rgba(64,64,64,0.5); position: absolute; display: inline-block; z-index: 10; pointer-events: auto;";
+    this.div.style.cssText = "padding: 0px; margin: 0px; outline: 2px solid rgba(64,64,64,0.5); position: absolute; display: inline-block; pointer-events: auto;";
     this.div.id = "slice-div-" + axis;
 
     this.div.style.left = x + "px";
