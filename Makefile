@@ -7,7 +7,7 @@ FLAGS = --js_output_file=
 
 #Sources
 SCRIPTS = src/main.js src/slicer.js src/volume.js src/tools.js 
-LIBS = lib/sharevol-min.js lib/OK-min.js lib/gl-matrix-min.js lib/dat.gui.min.js
+LIBS = lib/gl-matrix-min.js lib/dat.gui.min.js lib/OK-min.js lib/sharevol-min.js
 
 all: sharevol.js
 

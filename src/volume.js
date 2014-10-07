@@ -256,22 +256,30 @@ Volume.prototype.load = function(src) {
   for (var key in src.properties)
     this.properties[key] = src.properties[key]
 
-  this.translate = src.translate;
+  if (src.translate) this.translate = src.translate;
   //Initial rotation (Euler angles or quaternion accepted)
-  if (src.rotate.length == 3) {
-    this.rotateZ(-src.rotate[2]);
-    this.rotateY(-src.rotate[1]);
-    this.rotateX(-src.rotate[0]);
-  } else if (src.rotate[3] != 0)
-    this.rotate = quat4.create(src.rotate);    
+  if (src.rotate) {
+    if (src.rotate.length == 3) {
+      this.rotateZ(-src.rotate[2]);
+      this.rotateY(-src.rotate[1]);
+      this.rotateX(-src.rotate[0]);
+    } else if (src.rotate[3] != 0)
+      this.rotate = quat4.create(src.rotate);    
+  }
   //this.focus = src.focus;
   //this.centre = src.centre;
 }
 
-Volume.prototype.get = function() {
+Volume.prototype.get = function(matrix) {
   var data = {};
-  data.translate = this.translate;
-  data.rotate = [this.rotate[0], this.rotate[1], this.rotate[2], this.rotate[3]];
+  if (matrix) {
+    //Include the modelview matrix array
+    data.modelview = this.webgl.modelView.toArray();
+  } else {
+    //Translate + rotation quaternion
+    data.translate = this.translate;
+    data.rotate = [this.rotate[0], this.rotate[1], this.rotate[2], this.rotate[3]];
+  }
   //data.focus = this.focus;
   //data.centre = this.centre;
   data.colourmap = colours.palette.toString();

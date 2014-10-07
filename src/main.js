@@ -103,13 +103,16 @@ function saveData() {
   }
 }
 
-function getData() {
+function getData(compact, matrix) {
   var data = {};
   data.url = props.url;
   data.res = props.res;
   data.scale = props.scale;
-  if (volume) data.volume = volume.get();
+  if (volume) data.volume = volume.get(matrix);
   if (slicer) data.slicer = slicer.get();
+  //Return compact json string
+  if (compact) return JSON.stringify(data);
+  //Otherwise return indented json string
   return JSON.stringify(data, null, 2);
 }
 
@@ -145,51 +148,56 @@ function loadTexture() {
 
     image.onload = function () {
       console.log("Loaded image: " + image.width + " x " + image.height);
-
-      //Create the slicer
-      if (props.slicer) {
-        if (mobile) props.slicer.show = false; //Start hidden on small screen
-        slicer = new Slicer(props, image, "linear");
-      }
-
-      //Create the volume viewer
-      if (props.volume) {
-        volume = new Volume(props, image, mobile);
-        volume.slicer = slicer; //For axis position
-      }
-
-      //Volume draw on mouseup to apply changes from other controls (including slicer)
-      document.addEventListener("mouseup", function(ev) {if (volume) volume.delayedRender(250, true);}, false);
-      document.addEventListener("wheel", function(ev) {if (volume) volume.delayedRender(250, true);}, false);
-
-      //Update colours (and draw objects)
-      updateColourmap();
-
-      info.hide();  //Status
-
-      /*/Draw speed test
-      frames = 0;
-      testtime = new Date().getTime();
-      info.show();
-      volume.draw(false, true);*/
-
-      if (!props.nogui) {
-        var gui = new dat.GUI();
-        gui.add({"Reset" : function() {resetFromData(reset);}}, 'Reset');
-        gui.add({"Restore" : function() {resetFromData(props);}}, 'Restore');
-        gui.add({"Export" : function() {exportData();}}, 'Export');
-        gui.add({"loadFile" : function() {document.getElementById('fileupload').click();}}, 'loadFile'). name('Load Image file');
-        gui.add({"ColourMaps" : function() {window.colourmaps.toggle();}}, 'ColourMaps');
-
-        if (volume) volume.addGUI(gui);
-        if (slicer) slicer.addGUI(gui);
-      }
-
-      //Save props on exit
-      window.onbeforeunload = saveData;
+      imageLoaded(image);
     }
   }
   );
+}
+
+function imageLoaded(image) {
+  //Create the slicer
+  if (props.slicer) {
+    if (mobile) props.slicer.show = false; //Start hidden on small screen
+    slicer = new Slicer(props, image, "linear");
+  }
+
+  //Create the volume viewer
+  if (props.volume) {
+    volume = new Volume(props, image, mobile);
+    volume.slicer = slicer; //For axis position
+  }
+
+  //Volume draw on mouseup to apply changes from other controls (including slicer)
+  document.addEventListener("mouseup", function(ev) {if (volume) volume.delayedRender(250, true);}, false);
+  document.addEventListener("wheel", function(ev) {if (volume) volume.delayedRender(250, true);}, false);
+
+  //Update colours (and draw objects)
+  updateColourmap();
+
+  info.hide();  //Status
+
+  /*/Draw speed test
+  frames = 0;
+  testtime = new Date().getTime();
+  info.show();
+  volume.draw(false, true);*/
+
+  if (!props.nogui) {
+    var gui = new dat.GUI();
+    if (props.server)
+      gui.add({"Update" : function() {ajaxPost(props.server + "/update", "data=" + encodeURIComponent(getData(true, true)));}}, 'Update');
+    gui.add({"Reset" : function() {resetFromData(reset);}}, 'Reset');
+    gui.add({"Restore" : function() {resetFromData(props);}}, 'Restore');
+    gui.add({"Export" : function() {exportData();}}, 'Export');
+    gui.add({"loadFile" : function() {document.getElementById('fileupload').click();}}, 'loadFile'). name('Load Image file');
+    gui.add({"ColourMaps" : function() {window.colourmaps.toggle();}}, 'ColourMaps');
+
+    if (volume) volume.addGUI(gui);
+    if (slicer) slicer.addGUI(gui);
+  }
+
+  //Save props on exit
+  window.onbeforeunload = saveData;
 }
 
 /////////////////////////////////////////////////////////////////////////
