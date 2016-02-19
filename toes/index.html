@@ -1,0 +1,605 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=0" />
+<title>WebGL Volume Viewer - Sherry Mod</title>
+<script type="text/javascript" src="sharevol.js"></script>
+
+<script id="ray-fs" type="x-shader/x-fragment">
+/*
+ * Copyright (c) 2014, Monash University. All rights reserved.
+ * Author: Owen Kaluza - owen.kaluza ( at ) monash.edu
+ *
+ * Licensed under the GNU Lesser General Public License
+ * https://www.gnu.org/licenses/lgpl.html
+ *Just added by Sherry
+ */
+precision highp float;
+
+//Defined dynamically before compile...
+//const vec2 slices = vec2(16.0,16.0);
+//const int maxSamples = 256;
+
+uniform sampler2D uVolume;
+uniform sampler2D uTransferFunction;
+
+uniform vec3 uBBMin;
+uniform vec3 uBBMax;
+uniform vec3 uResolution;
+
+uniform bool uEnableColour;
+
+uniform float uBrightness;
+uniform float uContrast;
+uniform float uPower;
+
+uniform mat4 uMVMatrix;
+uniform mat4 uNMatrix;
+uniform float uFocalLength;
+uniform vec2 uWindowSize;
+uniform int uSamples;
+uniform float uDensityFactor;
+uniform float uIsoValue;
+uniform vec4 uIsoColour;
+uniform float uIsoSmooth;
+uniform int uIsoWalls;
+uniform int uFilter;
+
+//#define tex3D(pos) interpolate_tricubic_fast(pos)
+//#define tex3D(pos) texture3Dfrom2D(pos).x
+
+vec2 islices = vec2(1.0 / slices.x, 1.0 / slices.y);
+
+vec4 texture3Dfrom2D(vec3 pos)
+{
+  //Get z slice index and position between two slices
+  float Z = pos.z * slices.x * slices.y;
+  int slice = int(Z); //Index of first slice
+
+  //X & Y coords of sample scaled to slice size
+  vec2 sampleOffset = pos.xy * islices;
+  //Offsets in 2D texture of given slice indices
+  //(add offsets to scaled position within slice to get sample positions)
+  float A = float(slice) * islices.x;
+  float B = float(slice+1) * islices.x;
+  vec2 z1offset = vec2(fract(A), floor(A) / slices.y) + sampleOffset;
+  vec2 z2offset = vec2(fract(B), floor(B) / slices.y) + sampleOffset;
+  
+  //Interpolate the final value by position between slices [0,1]
+  return mix(texture2D(uVolume, z1offset), texture2D(uVolume, z2offset), fract(Z));
+}
+
+float interpolate_tricubic_fast(vec3 coord);
+
+float tex3D(vec3 pos) 
+{
+  if (uFilter > 0)
+    return interpolate_tricubic_fast(pos);
+  return texture3Dfrom2D(pos).x;
+}
+
+// It seems WebGL has no transpose
+mat4 transpose(in mat4 m)
+{
+  return mat4(
+              vec4(m[0].x, m[1].x, m[2].x, m[3].x),
+              vec4(m[0].y, m[1].y, m[2].y, m[3].y),
+              vec4(m[0].z, m[1].z, m[2].z, m[3].z),
+              vec4(m[0].w, m[1].w, m[2].w, m[3].w)
+             );
+}
+
+//Light moves with camera
+const vec3 lightPos = vec3(0.5, 0.5, 5.0);
+const float ambient = 0.2;
+const float diffuse = 0.8;
+const vec3 diffColour = vec3(1.0, 1.0, 1.0);  //Colour of diffuse light
+const vec3 ambColour = vec3(0.2, 0.2, 0.2);   //Colour of ambient light
+
+void lighting(in vec3 pos, in vec3 normal, inout vec3 colour)
+{
+  vec4 vertPos = uMVMatrix * vec4(pos, 1.0);
+  vec3 lightDir = normalize(lightPos - vertPos.xyz);
+  vec3 lightWeighting = ambColour + diffColour * diffuse * clamp(abs(dot(normal, lightDir)), 0.1, 1.0);
+
+  colour *= lightWeighting;
+}
+
+vec3 isoNormal(in vec3 pos, in vec3 shift, in float density)
+{
+  vec3 shiftpos = vec3(pos.x + shift.x, pos.y + shift.y, pos.z + shift.z);
+  vec3 shiftx = vec3(shiftpos.x, pos.y, pos.z);
+  vec3 shifty = vec3(pos.x, shiftpos.y, pos.z);
+  vec3 shiftz = vec3(pos.x, pos.y, shiftpos.z);
+
+  //Detect bounding box hit (walls)
+  if (uIsoWalls > 0)
+  {
+    if (pos.x <= uBBMin.x) return vec3(-1.0, 0.0, 0.0);
+    if (pos.x >= uBBMax.x) return vec3(1.0, 0.0, 0.0);
+    if (pos.y <= uBBMin.y) return vec3(0.0, -1.0, 0.0);
+    if (pos.y >= uBBMax.y) return vec3(0.0, 1.0, 0.0);
+    if (pos.z <= uBBMin.z) return vec3(0.0, 0.0, -1.0);
+    if (pos.z >= uBBMax.z) return vec3(0.0, 0.0, 1.0);
+  }
+
+  //Calculate normal
+  return vec3(density) - vec3(tex3D(shiftx), tex3D(shifty), tex3D(shiftz));
+}
+
+vec2 rayIntersectBox(vec3 rayDirection, vec3 rayOrigin)
+{
+  //Intersect ray with bounding box
+  vec3 rayInvDirection = 1.0 / rayDirection;
+  vec3 bbMinDiff = (uBBMin - rayOrigin) * rayInvDirection;
+  vec3 bbMaxDiff = (uBBMax - rayOrigin) * rayInvDirection;
+  vec3 imax = max(bbMaxDiff, bbMinDiff);
+  vec3 imin = min(bbMaxDiff, bbMinDiff);
+  float back = min(imax.x, min(imax.y, imax.z));
+  float front = max(max(imin.x, 0.0), max(imin.y, imin.z));
+  return vec2(back, front);
+}
+
+void main()
+{
+    //Correct gl_FragCoord for aspect ratio
+    float aspect = uWindowSize.x / uWindowSize.y;
+    vec2 coord = vec2((gl_FragCoord.x - (uWindowSize.x - uWindowSize.y) * 0.5) * aspect, gl_FragCoord.y);
+    vec3 rayDirection = normalize((vec4(2.0 * coord / uWindowSize - 1.0, -uFocalLength, 0) * uMVMatrix).xyz);
+
+    vec4 camPos = -vec4(uMVMatrix[3]);  //4th column of modelview
+    vec3 rayOrigin = (transpose(uMVMatrix) * camPos).xyz;
+
+    //Calc step
+    float stepSize = 1.732 / float(uSamples); //diagonal of [0,1] normalised coord cube = sqrt(3)
+
+    //Intersect ray with bounding box
+    vec2 intersection = rayIntersectBox(rayDirection, rayOrigin);
+    //Subtract small increment to avoid errors on front boundary
+    intersection.y -= 0.000001;
+    //Discard points outside the box (no intersection)
+    if (intersection.x <= intersection.y) discard;
+
+    vec3 rayStart = rayOrigin + rayDirection * intersection.y;
+    vec3 rayStop = rayOrigin + rayDirection * intersection.x;
+
+    vec3 step = normalize(rayStop-rayStart) * stepSize;
+    vec3 pos = rayStart;
+
+    float T = 1.0;
+    vec3 colour = vec3(0.0);
+    bool inside = false;
+    vec3 shift = uIsoSmooth / uResolution;
+    //Number of samples to take along this ray before we pass out back of volume...
+    float travel = distance(rayStop, rayStart) / stepSize;
+    int samples = int(ceil(travel));
+  
+    //Raymarch, front to back
+    for (int i=0; i < maxSamples; ++i)
+    {
+      //Render samples until we pass out back of cube or fully opaque
+#ifndef IE11
+      if (i == samples || T < 0.01) break;
+#else
+      //This is slower but allows IE 11 to render, break on non-uniform condition causes it to fail
+      if (i == uSamples) break;
+      if (all(greaterThanEqual(pos, uBBMin)) && all(lessThanEqual(pos, uBBMax)))
+#endif
+      {
+        //Get density 
+        float density = tex3D(pos);
+
+#define ISOSURFACE
+#ifdef ISOSURFACE
+        //Passed through isosurface?
+        if (uIsoValue > 0.0 && ((!inside && density >= uIsoValue) || (inside && density < uIsoValue)))
+        {
+          inside = !inside;
+          //Find closer to exact position by iteration
+          //http://sizecoding.blogspot.com.au/2008/08/isosurfaces-in-glsl.html
+          float exact;
+          float a = intersection.y + (float(i)*stepSize);
+          float b = a - stepSize;
+          for(int i = 0; i < 5; i++)
+          {
+            exact = (b + a) * 0.5;
+            pos = rayDirection * exact + rayOrigin;
+            density = tex3D(pos);
+            if (density - uIsoValue < 0.0)
+              b = exact;
+            else
+              a = exact;
+          }
+
+          //Skip edges unless flagged to draw
+          if (uIsoWalls > 0 || all(greaterThanEqual(pos, uBBMin)) && all(lessThanEqual(pos, uBBMax)))
+          {
+            vec4 value = vec4(uIsoColour.rgb, 1.0);
+
+            //normal = normalize(normal);
+            //if (length(normal) < 1.0) normal = vec3(0.0, 1.0, 0.0);
+            vec3 normal = normalize(mat3(uNMatrix) * isoNormal(pos, shift, density));
+
+            vec3 light = value.rgb;
+            lighting(pos, normal, light);
+            //Front-to-back blend equation
+            colour += T * uIsoColour.a * light;
+            T *= (1.0 - uIsoColour.a);
+          }
+        }
+#endif
+
+        if (uDensityFactor > 0.0)
+        {
+          density = pow(density, uPower); //Apply power
+
+          vec4 value;
+          if (uEnableColour)
+            value = texture2D(uTransferFunction, vec2(density, 0.5));
+          else
+            value = vec4(density);
+
+          value *= uDensityFactor * stepSize;
+
+          //Color
+          colour += T * value.rgb;
+          //Alpha
+          T *= 1.0 - value.a;
+        }
+      }
+	  
+      //Next sample...
+      pos += step;
+    }
+
+    //Apply brightness & contrast
+    colour = ((colour - 0.5) * max(uContrast, 0.0)) + 0.5;
+    colour += uBrightness;
+    gl_FragColor = vec4(colour, 1.0 - T);
+
+#ifdef WRITE_DEPTH
+    /* Write the depth !Not supported in WebGL without extension */
+    if (writeDepth)
+    {
+      vec4 clip_space_pos = uPMatrix * pos;
+      float ndc_depth = clip_space_pos.z / clip_space_pos.w;
+      float depth = (((gl_DepthRange.far - gl_DepthRange.near) * ndc_depth) + 
+                     gl_DepthRange.near + gl_DepthRange.far) / 2.0;
+      gl_FragDepth = depth;
+    }
+    else
+      gl_FragDepth = gl_DepthRange.far;
+#endif
+}
+
+float interpolate_tricubic_fast(vec3 coord)
+{
+/* License applicable to this function:
+Copyright (c) 2008-2013, Danny Ruijters. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+*  Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+*  Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+*  Neither the name of the copyright holders nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+The views and conclusions contained in the software and documentation are
+those of the authors and should not be interpreted as representing official
+policies, either expressed or implied.
+
+When using this code in a scientific project, please cite one or all of the
+following papers:
+*  Daniel Ruijters and Philippe Thévenaz,
+   GPU Prefilter for Accurate Cubic B-Spline Interpolation, 
+   The Computer Journal, vol. 55, no. 1, pp. 15-20, January 2012.
+*  Daniel Ruijters, Bart M. ter Haar Romeny, and Paul Suetens,
+   Efficient GPU-Based Texture Interpolation using Uniform B-Splines,
+   Journal of Graphics Tools, vol. 13, no. 4, pp. 61-69, 2008.
+*/
+  // shift the coordinate from [0,1] to [-0.5, nrOfVoxels-0.5]
+  vec3 nrOfVoxels = uResolution; //textureSize3D(tex, 0));
+  vec3 coord_grid = coord * nrOfVoxels - 0.5;
+  vec3 index = floor(coord_grid);
+  vec3 fraction = coord_grid - index;
+  vec3 one_frac = 1.0 - fraction;
+
+  vec3 w0 = 1.0/6.0 * one_frac*one_frac*one_frac;
+  vec3 w1 = 2.0/3.0 - 0.5 * fraction*fraction*(2.0-fraction);
+  vec3 w2 = 2.0/3.0 - 0.5 * one_frac*one_frac*(2.0-one_frac);
+  vec3 w3 = 1.0/6.0 * fraction*fraction*fraction;
+
+  vec3 g0 = w0 + w1;
+  vec3 g1 = w2 + w3;
+  vec3 mult = 1.0 / nrOfVoxels;
+  vec3 h0 = mult * ((w1 / g0) - 0.5 + index);  //h0 = w1/g0 - 1, move from [-0.5, nrOfVoxels-0.5] to [0,1]
+  vec3 h1 = mult * ((w3 / g1) + 1.5 + index);  //h1 = w3/g1 + 1, move from [-0.5, nrOfVoxels-0.5] to [0,1]
+
+  // fetch the eight linear interpolations
+  // weighting and fetching is interleaved for performance and stability reasons
+  float tex000 = texture3Dfrom2D(h0).r;
+  float tex100 = texture3Dfrom2D(vec3(h1.x, h0.y, h0.z)).r;
+  tex000 = mix(tex100, tex000, g0.x);  //weigh along the x-direction
+  float tex010 = texture3Dfrom2D(vec3(h0.x, h1.y, h0.z)).r;
+  float tex110 = texture3Dfrom2D(vec3(h1.x, h1.y, h0.z)).r;
+  tex010 = mix(tex110, tex010, g0.x);  //weigh along the x-direction
+  tex000 = mix(tex010, tex000, g0.y);  //weigh along the y-direction
+  float tex001 = texture3Dfrom2D(vec3(h0.x, h0.y, h1.z)).r;
+  float tex101 = texture3Dfrom2D(vec3(h1.x, h0.y, h1.z)).r;
+  tex001 = mix(tex101, tex001, g0.x);  //weigh along the x-direction
+  float tex011 = texture3Dfrom2D(vec3(h0.x, h1.y, h1.z)).r;
+  float tex111 = texture3Dfrom2D(h1).r;
+  tex011 = mix(tex111, tex011, g0.x);  //weigh along the x-direction
+  tex001 = mix(tex011, tex001, g0.y);  //weigh along the y-direction
+
+  return mix(tex001, tex000, g0.z);  //weigh along the z-direction
+}
+</script>
+
+<script id="ray-vs" type="x-shader/x-vertex">
+precision highp float;
+attribute vec3 aVertexPosition;
+void main(void)
+{
+  gl_Position = vec4(aVertexPosition, 1.0);
+}
+</script>
+
+<script id="texture-fs" type="x-shader/x-fragment">
+//Texture fragment shader
+precision mediump float;
+#define rgba vec4
+
+//Palette lookup mu = [0,1]
+#define gradient(mu) texture2D(palette, vec2(mu, 0.0))
+
+//Uniform data
+uniform sampler2D palette;
+uniform sampler2D texture;
+
+uniform int colourmap;
+uniform float bright;
+uniform float cont;
+uniform float power;
+
+uniform int axis;
+uniform vec3 slice;
+uniform ivec3 res;
+uniform vec2 dim;
+
+uniform ivec2 select;
+
+//Current coordinate
+varying vec2 vCoord;
+
+void main()
+{
+  bool invert = false;
+  vec2 coord;
+  float z;
+
+  if (int(gl_FragCoord.x) == select.x) invert = true;
+  if (int(gl_FragCoord.y) == select.y) invert = true;
+
+  if (axis==0)
+  {
+    //x-axis slice
+    //slice offset coords from vCoord.x, inside coords from (slice,vCoord.y)
+    z = vCoord.x * float(res.z);
+    coord = vec2(clamp(slice.x, 0.0, 0.999), vCoord.y);
+  }
+  else if (axis==1)
+  {
+    //y-axis slice
+    //slice offset coords from vCoord.y, inside coords from (vCoord.x,slice)
+    z = vCoord.y * float(res.z);
+    coord = vec2(vCoord.x, clamp(slice.y, 0.0, 0.999));
+  }
+  else if (axis==2)
+  {
+    //z-axis slice
+    //slice offset coords from slice.z, inside coords unchanged (vCoord.xy)
+    z = slice.z * float(res.z);
+    coord = vCoord;
+  }
+
+  //Get offsets to selected slice
+  float xy = z/dim.x;
+  int row = int(xy);
+  //mod() function doesn't work properly on safari, use fract() instead
+  //int col = int(fract(xy) * dim.x);
+  int col = int(fract(xy) * dim.x);
+  coord += vec2(float(col), float(row));
+  //Rescale to texture coords [0,1]
+  coord /= dim;
+
+  //Get texture value at coord and calculate final colour
+  vec4 tex = texture2D(texture, coord);
+  float lum = tex.r; //0.3 * tex.r + 0.59 * tex.g + 0.11 * tex.b;
+  lum = pow(lum, power);
+  vec4 pixelColor;
+  if (colourmap == 1)
+  {
+    pixelColor = gradient(lum);
+  }
+  else
+  {
+    pixelColor = vec4(lum, lum, lum, 1.0);
+  }
+  pixelColor.rgb = ((pixelColor.rgb - 0.5) * max(cont, 0.0)) + 0.5;
+  pixelColor.rgb += bright;
+  if (invert)
+  {
+    pixelColor.rgb = vec3(1.0) - pixelColor.rgb;
+    pixelColor.a = 1.0;
+  }
+  gl_FragColor = pixelColor;
+}
+
+</script>
+
+<script id="texture-vs" type="x-shader/x-vertex">
+//A simple vertex shader for 2d image processing
+//Pass the vertex coords to fragment shader in vCoord
+precision highp float;
+attribute vec3 aVertexPosition;
+uniform mat4 uMVMatrix;
+varying vec2 vCoord;
+void main(void) {
+  gl_Position = vec4(aVertexPosition, 1.0);
+  //Apply translation, rotation & scaling matrix to vertices to get coords
+  vec4 coords = uMVMatrix * vec4(aVertexPosition.xy, 0.0, 1.0);
+  vCoord = coords.xy;
+}
+</script>
+
+<script id="line-fs" type="x-shader/x-fragment">
+precision highp float;
+varying vec4 vColour;
+
+void main(void)
+{
+  gl_FragColor = vColour;
+}
+</script>
+
+<script id="line-vs" type="x-shader/x-vertex">
+precision highp float;
+
+attribute vec3 aVertexPosition;
+attribute vec4 aVertexColour;
+
+uniform mat4 uMVMatrix;
+uniform mat4 uPMatrix;
+
+uniform vec4 uColour;
+uniform float uAlpha;
+
+varying vec4 vColour;
+
+void main(void)
+{
+  vec4 mvPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+  gl_Position = uPMatrix * mvPosition;
+  vec4 colour = aVertexColour;
+  float alpha = 1.0;
+  if (uColour.a > 0.01) colour = uColour;
+  if (uAlpha > 0.01) alpha = uAlpha;
+  vColour = vec4(colour.rgb, colour.a * alpha);
+}
+</script>
+
+<style>
+html {
+  font-family: "Lucida Grande",sans-serif;
+  font-size: 11pt;
+  background: #ffe;
+}
+html, body { 
+  padding: 0; margin: 0;
+  border: none; 
+  width: 100%;
+  height: 100%;
+}
+
+.palette {
+  z-index: 0; margin: 0; padding:0;
+  border:1px solid #000;
+  border-radius: 4px;
+}
+
+.checkerboard {background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAIElEQVQ4jWP4TwAcOHAAL2YYNWBYGEBIASEwasCwMAAALvidroqDalkAAAAASUVORK5CYII=");}
+
+/* Background colour */
+#backgroundBG { float: left; margin: 0px 2px 0px 0px; width: 24px; height: 24px;}
+#backgroundCUR { float: left; width: 24px; height: 24px;}
+/* Colour select */
+.colourbg { margin:1px; width: 100px; height: 20px; border: solid 1px; border-radius: 4px;}
+
+.toolbox {
+  visibility: hidden; z-index: 20;
+  background: rgba(255,255,255,0.5); 
+  color: #000; 
+  cursor: move; 
+  padding: 7px 10px 11px 10px; 
+  position: absolute; 
+  border-radius: 5px; border: 1px solid #444; 
+  min-width: 300px;
+  max-height: 400px;
+}
+.scroll {
+  overflow-y: auto;
+  max-height: 330px;
+}
+.toolbox div,table,td,tr {
+  cursor: move; 
+}
+
+.toolbox * {cursor: auto;}
+.toolbox form {cursor: move;}
+.toolbox form * {cursor: auto;}
+
+.toolclose {float: right; cursor: pointer; color: #333; margin: 0px; font-weight: bold;
+  border: none; padding: 0px 4px; font-size: 14pt; line-height: 16px;}
+.toolbox h3 {
+  font-size: 10pt;
+  font-weight: bold;
+  margin: 2px 0px; padding: 0;
+  display: inline;
+}
+</style>
+
+</head>
+
+<body onload="initPage();" oncontextmenu="return false;">
+
+<div id="hidden" style="display: none">
+  <canvas id="gradient" width="2048" height="1"></canvas>
+  <input name="file" id="fileupload" type="file" onchange="fileSelected(this.files)" >
+</div>
+
+<div class="toolbox" id="info"><div>
+  <h3 id="status">Loading...</h3>
+</div></div>
+
+<div class="toolbox" id="colourmap"><div>
+  <div class="toolclose" onclick="window.colourmaps.hide();">&times;</div>
+  <h3>Colourmaps:</h3>
+  <hr>
+  <select id="colourmaps" onchange="setColourMap(this.value);">
+    <option value="" selected>None</option>
+    <option value="Default.cmap">Default</option>
+    <option value="CoolWarm.cmap">Cool-Warm</option>
+    <option value="HOTIRON.cmap">Hot iron</option>
+    <option value="NIH.cmap">NIH</option>
+    <option value="spectrum.cmap">Spectrum</option>
+  </select>
+  <br>
+  <canvas id="palette" width="512" height="24" class="palette checkerboard"></canvas>
+
+  <div id="backgroundBG" class="colourbg checkerboard">
+    <div id="backgroundCUR" class="colour" onmousedown="colours.editBackground($('backgroundCUR'));"></div>
+  </div>Background
+
+</div></div>
+
+</body>
+
+</html>
