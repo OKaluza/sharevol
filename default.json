@@ -45,7 +45,7 @@
       "brightness": -0.11780890196982163,
       "contrast": 1,
       "power": 1,
-      "usecolourmap": true,
+      "usecolourmap": false,
       "tricubicFilter": false,
       "lowPowerDevice": false,
       "axes": false,
