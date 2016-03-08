@@ -1,0 +1,130 @@
+{
+
+  "url": "wheat.jpg",
+
+
+  "res": [
+
+    256,
+
+    256,
+
+    256
+
+  ],
+
+  "scale": [
+
+    1,
+
+    1,
+
+    1
+
+  ],
+
+  "nogui" : true,
+
+  "volume": {
+
+"translate": [
+      -0.05715767664977255,
+      -0.031176914536239782,
+      -1.818653347947321
+    ],
+    "rotate": [
+      0.462426096200943,
+      -0.5540972948074341,
+      0.5443913340568542,
+      0.4274197220802307
+    ],
+
+
+    "colourmap": "Background=rgba(81,77,74,1)\n0.000000=rgba(0,0,0,0)\n0.190000=rgba(0,0,0,0)\n0.21=rgba(100,50,30,1)\n0.6000=rgba(150,90,40,1)\n1.000000=rgba(255,255,255,0)",
+
+    "properties": {
+
+      "samples": 256,
+
+      "isovalue": 0.28,
+
+      "drawWalls": true,
+
+      "isoalpha": 1,
+
+      "isosmooth": 0.5045783843331688,
+
+      "isocolour": [
+
+        210,
+
+        180.46299999999997,
+
+        56.95000000000002
+
+      ],
+
+      "Zmin": 0,
+
+      "Ymin": 0,
+
+      "Xmin": 0,
+
+      "Zmax": 1,
+
+      "Ymax": 0.9723324001313833,
+
+      "Xmax": 1,
+
+      "density": 24,
+
+      "brightness": -0.11780890196982163,
+
+      "contrast": 1,
+
+      "power": 1,
+
+      "usecolourmap": true,
+
+      "tricubicFilter": false,
+
+      "lowPowerDevice": false,
+
+      "axes": false,
+
+      "border": false
+
+    }
+
+  },
+
+  "slicer": {
+
+    "properties": {
+
+      "show": false,
+
+      "brightness": 0,
+
+      "contrast": 1,
+
+      "power": 1,
+
+      "usecolourmap": false,
+
+      "layout": "x|y|z",
+
+      "zoom": 0.6683351069050206,
+
+      "X": 93,
+
+      "Z": 144,
+
+      "Y": 111
+
+    }
+
+  }
+
+}
+		
