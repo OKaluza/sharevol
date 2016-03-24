@@ -1,12 +1,12 @@
 #Requires google closure compiler
 VERSION = 0.1
-COMP = java -jar compiler-latest/compiler.jar --jscomp_warning internetExplorerChecks --js=
-FLAGS = --js_output_file=
-#COMP = cp 
-#FLAGS = 
+#COMP = java -jar compiler-latest/compiler.jar --jscomp_warning internetExplorerChecks --js=
+#FLAGS = --js_output_file=
+COMP = cp 
+FLAGS = 
 
 #Sources
-SCRIPTS = src/main.js src/slicer.js src/volume.js src/tools.js 
+SCRIPTS = src/main.js src/slicer.js src/volume.js 
 LIBS = lib/gl-matrix-min.js lib/dat.gui.min.js lib/OK-min.js lib/sharevol-min.js
 
 all: sharevol.js

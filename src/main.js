@@ -15,7 +15,7 @@ var slicer;
 var colours;
 //Windows...
 var info, colourmaps;
-var props = {};
+var state = {};
 var reset;
 var filename;
 var mobile;
@@ -24,9 +24,9 @@ function initPage() {
   window.onresize = autoResize;
 
   //Create tool windows
-  info = new Toolbox("info");
+  info = new Popup("info");
   info.show();
-  colourmaps = new Toolbox("colourmap", 400, 200);
+  colourmaps = new Popup("colourmap", 400, 200);
 
   //Yes it's user agent sniffing, but we need to attempt to detect mobile devices so we don't over-stress their gpu...
   mobile = (screen.width <= 760 || /Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent));
@@ -36,37 +36,18 @@ function initPage() {
 
   //Load json data?
   var json = getSearchVariable("data");
-  if (!json) {
-    //Saved settings for this image...
-    filename = getSearchVariable("img");
-    if (filename) {
-      loadStoredData(filename);
-      //Use props from url or defaults
-      props = {
-        "url" : decodeURI(filename),
-        "res" : [getSearchVariable("nx", 256), getSearchVariable("ny", 256), getSearchVariable("nz", 256)],
-        "scale" : [getSearchVariable("dx", 1), getSearchVariable("dy", 1), getSearchVariable("dz", 1)]
-      }
+  //Attempt to load default.json
+  if (!json) json = "default.json";
 
-      if (props["url"]) loadTexture();
-    } else {
-      //Attempt to load default.json
-      json = "default.json";
-    }
-  }
-
-  //Try and load json parameters file (no cache)
-  if (json) {
-    $('status').innerHTML = "Loading params...";
-    ajaxReadFile(decodeURI(json), loadData, true);
-  }
+  $('status').innerHTML = "Loading params...";
+  ajaxReadFile(decodeURI(json), loadData, true);
 }
 
 function loadStoredData(key) {
   if (localStorage[key]) {
     try {
       var parsed = JSON.parse(localStorage[key]);
-      props = parsed;
+      state = parsed;
     } catch (e) {
       //if erroneous data in local storage, delete
       //console.log("parse error: " + e.message);
@@ -77,18 +58,77 @@ function loadStoredData(key) {
 }
 
 function loadData(src, fn) {
-  props = JSON.parse(src);
-  reset = props; //Store orig for reset
+  var parsed = JSON.parse(src);
+  if (parsed.volume) {
+    //Old data format
+    state = {}
+    state.properties = {};
+    state.colourmaps = [{}];
+    object = {};
+    view = {};
+    state.views = [view];
+    state.objects = [object];
+    //Copy fields to their new locations
+    //Objects
+    object.name = "volume";
+    object.samples = parsed.volume.properties.samples;
+    object.isovalue = parsed.volume.properties.isovalue;
+    object.isowalls = parsed.volume.properties.drawWalls;
+    object.isoalpha = parsed.volume.properties.isoalpha;
+    object.isosmooth = parsed.volume.properties.isosmooth;
+    object.colour = parsed.volume.properties.isocolour;
+    object.density = parsed.volume.properties.density;
+    object.power = parsed.volume.properties.power;
+    if (parsed.volume.properties.usecolourmap) object.colourmap = 0;
+    object.tricubicfilter = parsed.volume.properties.tricubicFilter;
+    object.zmin = parsed.volume.properties.Zmin;
+    object.zmax = parsed.volume.properties.Zmax;
+    object.ymin = parsed.volume.properties.Ymin;
+    object.ymax = parsed.volume.properties.Ymax;
+    object.xmin = parsed.volume.properties.Xmin;
+    object.xmax = parsed.volume.properties.Xmax;
+    object.brightness = parsed.volume.properties.brightness;
+    object.contrast = parsed.volume.properties.contrast;
+    //The volume data sub-object
+    object.volume = {};
+    object.volume.url = parsed.url;
+    object.volume.res = parsed.res;
+    object.volume.scale = parsed.scale;
+    //The slicer properties
+    object.slices = parsed.slicer;
+    //Properties - global rendering properties
+    state.properties.nogui = parsed.nogui;
+    //Views - single only in old data
+    view.axes = parsed.volume.properties.axes;
+    view.border = parsed.volume.properties.border;
+    view.translate = parsed.volume.translate;
+    view.rotate = parsed.volume.rotate;
+    view.focus = parsed.volume.focus;
+
+    //Colourmap
+    colours.read(parsed.volume.colourmap);
+    colours.update();
+    state.colourmaps = [colours.palette.get()];
+    delete state.colourmaps[0].background;
+    state.properties.background = colours.palette.background.html();
+  } else {
+    //New format - LavaVu compatible
+    state = parsed;
+  }
+
+  reset = state; //Store orig for reset
   //Storage reset?
   if (getSearchVariable("reset")) {localStorage.removeItem(fn); console.log("Storage cleared");}
+  /* LOCALSTORAGE DISABLED
   //Load any stored presets for this file
   filename = fn;
   loadStoredData(fn);
+  */
 
   //Setup default props from original data...
-  props.url = reset.url;
-  props.res = reset.res || [256, 256, 256];
-  props.scale = reset.scale || [1.0, 1.0, 1.0];
+  //state.objects = reset.objects;
+  if (!state.objects[0].volume.res) state.objects[0].volume.res = [256, 256, 256];
+  if (!state.objects[0].volume.scale) state.objects[0].volume.scale = [1.0, 1.0, 1.0];
 
   //Load the image
   loadTexture();
@@ -104,16 +144,53 @@ function saveData() {
 }
 
 function getData(compact, matrix) {
-  var data = {};
-  data.url = props.url;
-  data.res = props.res;
-  data.scale = props.scale;
-  if (volume) data.volume = volume.get(matrix);
-  if (slicer) data.slicer = slicer.get();
+  if (volume) {
+    var vdat = volume.get(matrix);
+    var object = state.objects[0];
+    object.brightness = vdat.properties.brightness;
+    object.contrast = vdat.properties.contrast;
+    object.zmin = vdat.properties.zmin;
+    object.zmax = vdat.properties.zmax;
+    object.ymin = vdat.properties.ymin;
+    object.ymax = vdat.properties.ymax;
+    object.xmin = vdat.properties.xmin;
+    object.xmax = vdat.properties.xmax;
+    //object.volume.res = parsed.res;
+    //object.volume.scale = parsed.scale;
+    object.samples = vdat.properties.samples;
+    object.isovalue = vdat.properties.isovalue;
+    object.isowalls = vdat.properties.isowalls
+    object.isoalpha = vdat.properties.isoalpha;
+    object.isosmooth = vdat.properties.isosmooth;
+    object.colour = vdat.properties.colour;
+    object.density = vdat.properties.density;
+    object.power = vdat.properties.power;
+    object.tricubicfilter = vdat.properties.tricubicFilter;
+    if (vdat.properties.usecolourmap)
+      object.colourmap = 0;
+    else
+      delete object.colourmap;
+
+    //Views - single only in old data
+    state.views[0].axes = vdat.properties.axes;
+    state.views[0].border = vdat.properties.border;
+    state.views[0].translate = vdat.translate;
+    state.views[0].rotate = vdat.rotate;
+
+    if (slicer)
+       state.objects[0].slices = slicer.get();
+
+    //Colourmap
+    state.colourmaps = [colours.palette.get()];
+    delete state.colourmaps[0].background;
+    state.properties.background = colours.palette.background.html();
+  }
+
   //Return compact json string
-  if (compact) return JSON.stringify(data);
+  console.log(JSON.stringify(state, null, 2));
+  if (compact) return JSON.stringify(state);
   //Otherwise return indented json string
-  return JSON.stringify(data, null, 2);
+  return JSON.stringify(state, null, 2);
 }
 
 function exportData() {
@@ -122,12 +199,13 @@ function exportData() {
 
 function resetFromData(src) {
   //Restore data from saved props
-  if (src.volume && volume) {
-    volume.load(src.volume);
+  if (src.objects[0].volume && volume) {
+    volume.load(src.objects[0]);
     volume.draw();
   }
-  if (src.slicer && slicer) {
-    slicer.load(src.slicer);
+
+  if (src.objects[0].slices && slicer) {
+    slicer.load(src.objects[0].slices);
     slicer.draw();
   }
 }
@@ -136,7 +214,7 @@ function loadTexture() {
   $('status').innerHTML = "Loading image data... ";
   var image;
 
-  loadImage(props["url"], function () {
+  loadImage(state.objects[0].volume.url, function () {
     image = new Image();
 
     var headers = request.getAllResponseHeaders();
@@ -156,14 +234,14 @@ function loadTexture() {
 
 function imageLoaded(image) {
   //Create the slicer
-  if (props.slicer) {
-    if (mobile) props.slicer.show = false; //Start hidden on small screen
-    slicer = new Slicer(props, image, "linear");
+  if (state.objects[0].slices) {
+    if (mobile) state.objects[0].slices.show = false; //Start hidden on small screen
+    slicer = new Slicer(state.objects[0], image, "linear");
   }
 
   //Create the volume viewer
-  if (props.volume) {
-    volume = new Volume(props, image, mobile);
+  if (state.objects[0].volume) {
+    volume = new Volume(state.objects[0], image, mobile);
     volume.slicer = slicer; //For axis position
   }
 
@@ -172,6 +250,8 @@ function imageLoaded(image) {
   document.addEventListener("wheel", function(ev) {if (volume) volume.delayedRender(250, true);}, false);
 
   //Update colours (and draw objects)
+  colours.read(state.colourmaps[0].colours);
+  colours.update();
   updateColourmap();
 
   info.hide();  //Status
@@ -182,12 +262,14 @@ function imageLoaded(image) {
   info.show();
   volume.draw(false, true);*/
 
-  if (!props.nogui) {
+  if (!state.properties.nogui) {
     var gui = new dat.GUI();
-    if (props.server)
-      gui.add({"Update" : function() {ajaxPost(props.server + "/update", "data=" + encodeURIComponent(getData(true, true)));}}, 'Update');
+    if (state.properties.server)
+      gui.add({"Update" : function() {ajaxPost(state.properties.server + "/update", "data=" + encodeURIComponent(getData(true, true)));}}, 'Update');
+    /* LOCALSTORAGE DISABLED
     gui.add({"Reset" : function() {resetFromData(reset);}}, 'Reset');
-    gui.add({"Restore" : function() {resetFromData(props);}}, 'Restore');
+    */
+    gui.add({"Restore" : function() {resetFromData(state);}}, 'Restore');
     gui.add({"Export" : function() {exportData();}}, 'Export');
     gui.add({"loadFile" : function() {document.getElementById('fileupload').click();}}, 'loadFile'). name('Load Image file');
     gui.add({"ColourMaps" : function() {window.colourmaps.toggle();}}, 'ColourMaps');
@@ -201,19 +283,6 @@ function imageLoaded(image) {
 }
 
 /////////////////////////////////////////////////////////////////////////
-//File upload handling
-function fileSelected(files) {
-  filesProcess(files);
-}
-function filesProcess(files, callback) {
-  window.URL = window.webkitURL || window.URL; // Vendor prefixed in Chrome.
-  for (var i = 0; i < files.length; i++) {
-    var file = files[i];
-    props["url"] = window.URL.createObjectURL(file);
-    loadTexture();
-  }
-}
-
 function autoResize() {
   if (volume) {
     volume.width = 0; //volume.canvas.width = window.innerWidth;
@@ -276,17 +345,6 @@ var request, progressBar;
             progressBar.removeAttribute("value");
     }
     
-    function showImage()
-    {
-        var headers = request.getAllResponseHeaders();
-        var match = headers.match( /^Content-Type\:\s*(.*?)$/mi );
-        var mimeType = match[1] || 'image/png';
-        var blob = new Blob([request.response], {type: mimeType} );
-        var imageElement = document.createElement("img");
-        imageElement.src = window.URL.createObjectURL(blob);
-        document.body.appendChild(imageElement);
-    }
-    
     function hideProgressBar()
     {
       document.getElementById('status').removeChild(progressBar);
@@ -295,12 +353,8 @@ var request, progressBar;
 /**
  * @constructor
  */
-function Toolbox(id, x, y) {
-  //Mouse processing:
+function Popup(id, x, y) {
   this.el = $(id);
-  this.mouse = new Mouse(this.el, this);
-  this.mouse.moveUpdate = true;
-  this.el.mouse = this.mouse;
   this.style = $S(id);
   if (x && y) {
     this.style.left = x + 'px';
@@ -312,44 +366,18 @@ function Toolbox(id, x, y) {
   this.drag = false;
 }
 
-Toolbox.prototype.toggle = function() {
+Popup.prototype.toggle = function() {
   if (this.style.visibility == 'visible')
     this.hide();
   else
     this.show();
 }
 
-Toolbox.prototype.show = function() {
+Popup.prototype.show = function() {
   this.style.visibility = 'visible';
 }
 
-Toolbox.prototype.hide = function() {
+Popup.prototype.hide = function() {
   this.style.visibility = 'hidden';
 }
 
-//Mouse event handling
-Toolbox.prototype.click = function(e, mouse) {
-  this.drag = false;
-  return true;
-}
-
-Toolbox.prototype.down = function(e, mouse) {
-  //Process left drag only
-  this.drag = false;
-  if (mouse.button == 0 && e.target.className.indexOf('scroll') < 0 && ['INPUT', 'SELECT', 'OPTION', 'RADIO'].indexOf(e.target.tagName) < 0)
-    this.drag = true;
-  return true;
-}
-
-Toolbox.prototype.move = function(e, mouse) {
-  if (!mouse.isdown) return true;
-  if (!this.drag) return true;
-
-  //Drag position
-  this.el.style.left = parseInt(this.el.style.left) + mouse.deltaX + 'px';
-  this.el.style.top = parseInt(this.el.style.top) + mouse.deltaY + 'px';
-  return false;
-}
-
-Toolbox.prototype.wheel = function(e, mouse) {
-}

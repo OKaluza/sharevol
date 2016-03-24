@@ -48,15 +48,15 @@ function Volume(props, image, mobile, parentEl) {
   this.orientation = 1.0; //1.0 for RH, -1.0 for LH
   this.fov = 45.0;
   this.focalLength = 1.0 / Math.tan(0.5 * this.fov * Math.PI/180);
-  this.resolution = props["res"];
+  this.resolution = props.volume["res"];
 
   //Calculated scaling
-  this.scaling = [props["res"][0] * props["scale"][0], 
-                  props["res"][1] * props["scale"][1],
-                  props["res"][2] * props["scale"][2]];
-  this.tiles = [this.image.width / props["res"][0],
-                this.image.height / props["res"][1]];
-  var maxn = props["res"][2];
+  this.scaling = [props.volume["res"][0] * props.volume["scale"][0], 
+                  props.volume["res"][1] * props.volume["scale"][1],
+                  props.volume["res"][2] * props.volume["scale"][2]];
+  this.tiles = [this.image.width / props.volume["res"][0],
+                this.image.height / props.volume["res"][1]];
+  var maxn = props.volume["res"][2];
   this.scaling = [maxn / this.scaling[0], maxn / this.scaling[1], maxn / this.scaling[2]]
 
   //Set dims
@@ -143,13 +143,13 @@ function Volume(props, image, mobile, parentEl) {
 
   this.properties.samples = 256;
   this.properties.isovalue = 0.0;
-  this.properties.drawWalls = false;
+  this.properties.isowalls = false;
   this.properties.isoalpha = 0.75;
   this.properties.isosmooth = 1.0;
-  this.properties.isocolour = [214, 188, 86];
+  this.properties.colour = [214, 188, 86];
 
-  this.properties.Xmin = this.properties.Ymin = this.properties.Zmin = 0.0;
-  this.properties.Xmax = this.properties.Ymax = this.properties.Zmax = 1.0;
+  this.properties.xmin = this.properties.ymin = this.properties.zmin = 0.0;
+  this.properties.xmax = this.properties.ymax = this.properties.zmax = 1.0;
 
   this.properties.density = 10.0;
   this.properties.brightness = 0.0;
@@ -162,7 +162,7 @@ function Volume(props, image, mobile, parentEl) {
   this.properties.border = true;
 
   //Load from local storage or previously loaded file
-  if (props.volume) this.load(props.volume);
+  this.load(props);
 
   if (mobile) //Low power can be enabled in props by default but not switched off
     this.properties.lowPowerDevice = true;
@@ -222,21 +222,21 @@ Volume.prototype.addGUI = function(gui) {
 
   //Clip planes folder
   var f0 = this.gui.addFolder('Clip planes');
-  f0.add(this.properties, 'Xmin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setX(l);});
-  f0.add(this.properties, 'Xmax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setX(l);});
-  f0.add(this.properties, 'Ymin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setY(l);});
-  f0.add(this.properties, 'Ymax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setY(l);});
-  f0.add(this.properties, 'Zmin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setZ(l);});
-  f0.add(this.properties, 'Zmax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setZ(l);});
+  f0.add(this.properties, 'xmin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setX(l);});
+  f0.add(this.properties, 'xmax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setX(l);});
+  f0.add(this.properties, 'ymin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setY(l);});
+  f0.add(this.properties, 'ymax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setY(l);});
+  f0.add(this.properties, 'zmin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setZ(l);});
+  f0.add(this.properties, 'zmax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setZ(l);});
   //f0.open();
 
   //Isosurfaces folder
   var f1 = this.gui.addFolder('Isosurface');
   f1.add(this.properties, 'isovalue', 0.0, 1.0, 0.01);
-  f1.add(this.properties, 'drawWalls');
+  f1.add(this.properties, 'isowalls');
   f1.add(this.properties, 'isoalpha', 0.0, 1.0, 0.01);
   f1.add(this.properties, 'isosmooth', 0.1, 3.0, 0.1);
-  f1.addColor(this.properties, 'isocolour');
+  f1.addColor(this.properties, 'colour');
   //f1.open();
 
   // Iterate over all controllers and set change function
@@ -251,23 +251,24 @@ Volume.prototype.addGUI = function(gui) {
 }
 
 Volume.prototype.load = function(src) {
-  colours.read(src.colourmap);
-  colours.update();
-  for (var key in src.properties)
-    this.properties[key] = src.properties[key]
+  for (var key in src)
+    this.properties[key] = src[key]
 
-  if (src.translate) this.translate = src.translate;
+  if (src.colourmap != undefined) this.properties.usecolourmap = true;
+  this.properties.axes = state.views[0].axes;
+  this.properties.border = state.views[0].border;
+  this.properties.tricubicFilter = src.tricubicfilter;
+
+  if (state.views[0].translate) this.translate = state.views[0].translate;
   //Initial rotation (Euler angles or quaternion accepted)
-  if (src.rotate) {
-    if (src.rotate.length == 3) {
-      this.rotateZ(-src.rotate[2]);
-      this.rotateY(-src.rotate[1]);
-      this.rotateX(-src.rotate[0]);
-    } else if (src.rotate[3] != 0)
-      this.rotate = quat4.create(src.rotate);    
+  if (state.views[0].rotate) {
+    if (state.views[0].rotate.length == 3) {
+      this.rotateZ(-state.views[0].rotate[2]);
+      this.rotateY(-state.views[0].rotate[1]);
+      this.rotateX(-state.views[0].rotate[0]);
+    } else if (state.views[0].rotate[3] != 0)
+      this.rotate = quat4.create(state.views[0].rotate);    
   }
-  //this.focus = src.focus;
-  //this.centre = src.centre;
 }
 
 Volume.prototype.get = function(matrix) {
@@ -280,9 +281,6 @@ Volume.prototype.get = function(matrix) {
     data.translate = this.translate;
     data.rotate = [this.rotate[0], this.rotate[1], this.rotate[2], this.rotate[3]];
   }
-  //data.focus = this.focus;
-  //data.centre = this.centre;
-  data.colourmap = colours.palette.toString();
   data.properties = this.properties;
   return data;
 }
@@ -347,8 +345,8 @@ Volume.prototype.draw = function(lowquality, testmode) {
     this.gl.uniform1f(this.program.uniforms["uFocalLength"], this.focalLength);
     this.gl.uniform2fv(this.program.uniforms["uWindowSize"], new Float32Array([this.gl.viewportWidth, this.gl.viewportHeight]));
 
-    var bbmin = [this.properties.Xmin, this.properties.Ymin, this.properties.Zmin];
-    var bbmax = [this.properties.Xmax, this.properties.Ymax, this.properties.Zmax];
+    var bbmin = [this.properties.xmin, this.properties.ymin, this.properties.zmin];
+    var bbmax = [this.properties.xmax, this.properties.ymax, this.properties.zmax];
     this.gl.uniform3fv(this.program.uniforms["uBBMin"], new Float32Array(bbmin));
     this.gl.uniform3fv(this.program.uniforms["uBBMax"], new Float32Array(bbmax));
     this.gl.uniform3fv(this.program.uniforms["uResolution"], new Float32Array(this.resolution));
@@ -360,11 +358,11 @@ Volume.prototype.draw = function(lowquality, testmode) {
     this.gl.uniform1f(this.program.uniforms["uPower"], this.properties.power);
 
     this.gl.uniform1f(this.program.uniforms["uIsoValue"], this.properties.isovalue);
-    var colour = new Colour(this.properties.isocolour);
+    var colour = new Colour(this.properties.colour);
     colour.alpha = this.properties.isoalpha;
     this.gl.uniform4fv(this.program.uniforms["uIsoColour"], colour.rgbaGL());
     this.gl.uniform1f(this.program.uniforms["uIsoSmooth"], this.properties.isosmooth);
-    this.gl.uniform1i(this.program.uniforms["uIsoWalls"], this.properties.drawWalls);
+    this.gl.uniform1i(this.program.uniforms["uIsoWalls"], this.properties.isowalls);
 
     //Clip Plane
     //this.gl.uniform4fv(this.program.uniforms["uClipPlane"], new Float32Array([0, 1, 0, 7]));
