@@ -251,8 +251,9 @@ function imageLoaded(image) {
 
   //Update colours (and draw objects)
   colours.read(state.colourmaps[0].colours);
+  //Copy the global background colour
+  colours.palette.background = new Colour(state.properties.background);
   colours.update();
-  updateColourmap();
 
   info.hide();  //Status
 
@@ -289,12 +290,6 @@ function autoResize() {
     volume.height = 0; //volume.canvas.height = window.innerHeight;
     volume.draw();
   }
-}
-
-function setColourMap(filename) {
-  var data = readURL("colourmaps/" + filename);
-  colours.read(data);
-  updateColourmap();
 }
 
 function updateColourmap() {

@@ -521,7 +521,6 @@ html, body {
 .palette {
   z-index: 0; margin: 0; padding:0;
   border:1px solid #000;
-  border-radius: 4px;
 }
 
 .checkerboard {background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAIElEQVQ4jWP4TwAcOHAAL2YYNWBYGEBIASEwasCwMAAALvidroqDalkAAAAASUVORK5CYII=");}
@@ -530,7 +529,7 @@ html, body {
 #backgroundBG { float: left; margin: 0px 2px 0px 0px; width: 24px; height: 24px;}
 #backgroundCUR { float: left; width: 24px; height: 24px;}
 /* Colour select */
-.colourbg { margin:1px; width: 100px; height: 20px; border: solid 1px; border-radius: 4px;}
+.colourbg { margin:1px; width: 100px; height: 20px; border: solid 1px;}
 
 .toolbox {
   visibility: hidden; z-index: 20;
@@ -538,7 +537,7 @@ html, body {
   color: #000; 
   padding: 7px 10px 11px 10px; 
   position: absolute; 
-  border-radius: 5px; border: 1px solid #444; 
+  border: 1px solid #444; 
   min-width: 300px;
   max-height: 400px;
 }
@@ -577,20 +576,21 @@ html, body {
   <div class="toolclose" onclick="window.colourmaps.hide();">&times;</div>
   <h3>Colourmaps:</h3>
   <hr>
-  <select id="colourmaps" onchange="setColourMap(this.value);">
+  <select id="colourmaps" onchange="colours.read(this.value); updateColourmap();">
     <option value="" selected>None</option>
-    <option value="Default.cmap">Default</option>
-    <option value="CoolWarm.cmap">Cool-Warm</option>
-    <option value="HOTIRON.cmap">Hot iron</option>
-    <option value="NIH.cmap">NIH</option>
-    <option value="spectrum.cmap">Spectrum</option>
+    <option value="#000000;#ffffff">Black-White</option>
+    <option value="#ffffff;#000000">White-Black</option>
+    <option value="0.0=rgba(59,76,192,1.0);0.117647=rgba(95,127,232,1.0);0.235294=rgba(135,171,253,1.0);0.352941=rgba(176,203,252,1.0);0.5=rgba(220,220,220,1.0);0.529412=rgba(228,217,211,1.0);0.647059=rgba(246,191,165,1.0);0.764706=rgba(243,149,118,1.0);0.882353=rgba(221,94,75,1.0);1.0=rgba(181,11,39,1.0)">Cool-Warm</option>
+    <option value="0.0=rgba(0,0,0,1.0);0.5=rgba(255,0,0,1.0);0.75=rgba(255,127,0,1.0);1.000000=rgba(255,255,255,1.0)">Hot iron</option>
+    <option value="rgba(0,0,0,1.0);rgba(85,0,170,1.0);rgba(5,0,90,1.0);rgba(0,0,159,1.0);rgba(0,0,239,1.0);rgba(0,63,255,1.0);rgba(0,143,196,1.0);rgba(0,223,170,1.0);rgba(0,255,74,1.0);rgba(42,255,42,1.0);rgba(159,255,47,1.0);rgba(255,223,0,1.0);rgba(255,143,0,1.0);rgba(255,71,0,1.0);rgba(255,22,0,1.0);rgba(237,0,0,1.0);rgba(203,0,0,1.0);rgba(0,0,0,1.0)">NIH</option>
+    <option value="#ff00ff;#0000ff;#00ffff;#00ff00;#ffff00;#ff0000">Spectrum</option>
   </select>
   <br>
   <canvas id="palette" width="512" height="24" class="palette checkerboard"></canvas>
 
   <div id="backgroundBG" class="colourbg checkerboard">
     <div id="backgroundCUR" class="colour" onmousedown="colours.editBackground($('backgroundCUR'));"></div>
-  </div>Background
+  </div>
 
 </div></div>
 
