@@ -33,6 +33,8 @@ function initPage() {
       throw "No browser WebGL support";
     var canvas = document.createElement('canvas');
     var ctx = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!ctx)
+      throw "No WebGL context available";
     canvas = ctx = null;
   } catch (e) {
     $('status').innerHTML = "Sorry, ShareVol requires a <a href='http://get.webgl.org'>WebGL</a> capable browser!";
