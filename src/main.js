@@ -282,12 +282,20 @@ function imageLoaded(image) {
     if (state.properties.server)
       gui.add({"Update" : function() {ajaxPost(state.properties.server + "/update", "data=" + encodeURIComponent(getData(true, true)));}}, 'Update');
     /* LOCALSTORAGE DISABLED
-    gui.add({"Reset" : function() {resetFromData(reset);}}, 'Reset');
-    */
+    gui.add({"Reset" : function() {resetFromData(reset);}}, 'Reset');*/
     gui.add({"Restore" : function() {resetFromData(state);}}, 'Restore');
     gui.add({"Export" : function() {exportData();}}, 'Export');
-    gui.add({"loadFile" : function() {document.getElementById('fileupload').click();}}, 'loadFile'). name('Load Image file');
+    //gui.add({"loadFile" : function() {document.getElementById('fileupload').click();}}, 'loadFile'). name('Load Image file');
     gui.add({"ColourMaps" : function() {window.colourmaps.toggle();}}, 'ColourMaps');
+
+    var f = gui.addFolder('Views');
+    var ir2 = 1.0 / Math.sqrt(2.0);
+    f.add({"XY" : function() {volume.rotate = quat4.create([0, 0, 0, 1]);}}, 'XY');
+    f.add({"YX" : function() {volume.rotate = quat4.create([0, 1, 0, 0]);}}, 'YX');
+    f.add({"XZ" : function() {volume.rotate = quat4.create([ir2, 0, 0, -ir2]);}}, 'XZ');
+    f.add({"ZX" : function() {volume.rotate = quat4.create([ir2, 0, 0, ir2]);}}, 'ZX');
+    f.add({"YZ" : function() {volume.rotate = quat4.create([0, -ir2, 0, -ir2]);}}, 'YZ');
+    f.add({"ZY" : function() {volume.rotate = quat4.create([0, -ir2, 0, ir2]);}}, 'ZY');
 
     if (volume) volume.addGUI(gui);
     if (slicer) slicer.addGUI(gui);
