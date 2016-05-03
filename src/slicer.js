@@ -263,7 +263,6 @@
     this.webgl.use(this.program);
 
     //Uniform variables
-    this.gl.uniform4fv(this.program.uniforms["background"], colours.palette.colours[0].colour.rgbaGL());
 
     //Gradient texture
     this.gl.activeTexture(this.gl.TEXTURE0);
