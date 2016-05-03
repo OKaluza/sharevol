@@ -9033,6 +9033,17 @@ function initPage() {
   info.show();
   colourmaps = new Popup("colourmap", 400, 200);
 
+  try {
+    if (!window.WebGLRenderingContext)
+      throw "No browser WebGL support";
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    canvas = ctx = null;
+  } catch (e) {
+    $('status').innerHTML = "Sorry, ShareVol requires a <a href='http://get.webgl.org'>WebGL</a> capable browser!";
+    return;
+  }
+
   //Yes it's user agent sniffing, but we need to attempt to detect mobile devices so we don't over-stress their gpu...
   mobile = (screen.width <= 760 || /Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent));
 
@@ -9920,8 +9931,8 @@ function Volume(props, image, mobile, parentEl) {
   defines += "const int maxSamples = " + maxSamples + ";\n\n\n\n\n\n"; //Extra newlines so errors in main shader have correct line #
   OK.debug(defines);
 
-  var fs = getSourceFromElement('ray-fs');
-  this.program = new WebGLProgram(this.gl, 'ray-vs', defines + fs);
+  var fs = getSourceFromElement('volume-fs');
+  this.program = new WebGLProgram(this.gl, 'volume-vs', defines + fs);
    //console.log(defines + fs);
   if (this.program.errors) OK.debug(this.program.errors);
   this.program.setup(["aVertexPosition"], 

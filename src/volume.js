@@ -121,8 +121,8 @@ function Volume(props, image, mobile, parentEl) {
   defines += "const int maxSamples = " + maxSamples + ";\n\n\n\n\n\n"; //Extra newlines so errors in main shader have correct line #
   OK.debug(defines);
 
-  var fs = getSourceFromElement('ray-fs');
-  this.program = new WebGLProgram(this.gl, 'ray-vs', defines + fs);
+  var fs = getSourceFromElement('volume-fs');
+  this.program = new WebGLProgram(this.gl, 'volume-vs', defines + fs);
    //console.log(defines + fs);
   if (this.program.errors) OK.debug(this.program.errors);
   this.program.setup(["aVertexPosition"], 
