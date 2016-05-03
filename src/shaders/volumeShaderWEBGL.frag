@@ -22,12 +22,14 @@ uniform bool uEnableColour;
 
 uniform float uBrightness;
 uniform float uContrast;
+uniform float uSaturation;
 uniform float uPower;
 
+uniform mat4 uPMatrix;
+uniform mat4 uInvPMatrix;
 uniform mat4 uMVMatrix;
 uniform mat4 uNMatrix;
-uniform float uFocalLength;
-uniform vec2 uWindowSize;
+uniform vec4 uViewport;
 uniform int uSamples;
 uniform float uDensityFactor;
 uniform float uIsoValue;
@@ -35,6 +37,8 @@ uniform vec4 uIsoColour;
 uniform float uIsoSmooth;
 uniform int uIsoWalls;
 uniform int uFilter;
+uniform vec2 uRange;
+uniform vec2 uDenMinMax;
 
 //#define tex3D(pos) interpolate_tricubic_fast(pos)
 //#define tex3D(pos) texture3Dfrom2D(pos).x
@@ -133,13 +137,22 @@ vec2 rayIntersectBox(vec3 rayDirection, vec3 rayOrigin)
 
 void main()
 {
-    //Correct gl_FragCoord for aspect ratio
-    float aspect = uWindowSize.x / uWindowSize.y;
-    vec2 coord = vec2((gl_FragCoord.x - (uWindowSize.x - uWindowSize.y) * 0.5) * aspect, gl_FragCoord.y);
-    vec3 rayDirection = normalize((vec4(2.0 * coord / uWindowSize - 1.0, -uFocalLength, 0) * uMVMatrix).xyz);
+    //Compute eye space coord from window space to get the ray direction
+    mat4 invMVMatrix = transpose(uMVMatrix);
+    //ObjectSpace *[MV] = EyeSpace *[P] = Clip /w = Normalised device coords ->VP-> Window
+    //Window ->[VP^]-> NDC ->[/w]-> Clip ->[P^]-> EyeSpace ->[MV^]-> ObjectSpace
+    vec4 ndcPos;
+    ndcPos.xy = ((2.0 * gl_FragCoord.xy) - (2.0 * uViewport.xy)) / (uViewport.zw) - 1.0;
+    ndcPos.z = (2.0 * gl_FragCoord.z - gl_DepthRange.near - gl_DepthRange.far) /
+               (gl_DepthRange.far - gl_DepthRange.near);
+    ndcPos.w = 1.0;
+    vec4 clipPos = ndcPos / gl_FragCoord.w;
+    //vec4 eyeSpacePos = uInvPMatrix * clipPos;
+    vec3 rayDirection = normalize((invMVMatrix * uInvPMatrix * clipPos).xyz);
 
+    //Ray origin from the camera position
     vec4 camPos = -vec4(uMVMatrix[3]);  //4th column of modelview
-    vec3 rayOrigin = (transpose(uMVMatrix) * camPos).xyz;
+    vec3 rayOrigin = (invMVMatrix * camPos).xyz;
 
     //Calc step
     float stepSize = 1.732 / float(uSamples); //diagonal of [0,1] normalised coord cube = sqrt(3)
@@ -164,6 +177,10 @@ void main()
     //Number of samples to take along this ray before we pass out back of volume...
     float travel = distance(rayStop, rayStart) / stepSize;
     int samples = int(ceil(travel));
+    float range = uRange.y - uRange.x;
+    if (range <= 0.0) range = 1.0;
+    //Scale isoValue
+    float isoValue = uRange.x + uIsoValue * range;
   
     //Raymarch, front to back
     for (int i=0; i < maxSamples; ++i)
@@ -183,7 +200,7 @@ void main()
 #define ISOSURFACE
 #ifdef ISOSURFACE
         //Passed through isosurface?
-        if (uIsoValue > 0.0 && ((!inside && density >= uIsoValue) || (inside && density < uIsoValue)))
+        if (isoValue > uRange.x && ((!inside && density >= isoValue) || (inside && density < isoValue)))
         {
           inside = !inside;
           //Find closer to exact position by iteration
@@ -191,12 +208,12 @@ void main()
           float exact;
           float a = intersection.y + (float(i)*stepSize);
           float b = a - stepSize;
-          for(int i = 0; i < 5; i++)
+          for (int j = 0; j < 5; j++)
           {
             exact = (b + a) * 0.5;
             pos = rayDirection * exact + rayOrigin;
             density = tex3D(pos);
-            if (density - uIsoValue < 0.0)
+            if (density - isoValue < 0.0)
               b = exact;
             else
               a = exact;
@@ -222,6 +239,16 @@ void main()
 
         if (uDensityFactor > 0.0)
         {
+          //Normalise the density over provided range
+          density = (density - uRange.x) / range;
+          density = clamp(density, 0.0, 1.0);
+          if (density < uDenMinMax[0] || density > uDenMinMax[1])
+          {
+            //Skip to next sample...
+            pos += step;
+            continue;
+          }
+
           density = pow(density, uPower); //Apply power
 
           vec4 value;
@@ -243,23 +270,24 @@ void main()
       pos += step;
     }
 
-    //Apply brightness & contrast
-    colour = ((colour - 0.5) * max(uContrast, 0.0)) + 0.5;
+    //Apply brightness, saturation & contrast
     colour += uBrightness;
+    const vec3 LumCoeff = vec3(0.2125, 0.7154, 0.0721);
+    vec3 AvgLumin = vec3(0.5, 0.5, 0.5);
+    vec3 intensity = vec3(dot(colour, LumCoeff));
+    colour = mix(intensity, colour, uSaturation);
+    colour = mix(AvgLumin, colour, uContrast);
+
+    if (T > 0.95) discard;
     gl_FragColor = vec4(colour, 1.0 - T);
 
 #ifdef WRITE_DEPTH
     /* Write the depth !Not supported in WebGL without extension */
-    if (writeDepth)
-    {
-      vec4 clip_space_pos = uPMatrix * pos;
-      float ndc_depth = clip_space_pos.z / clip_space_pos.w;
-      float depth = (((gl_DepthRange.far - gl_DepthRange.near) * ndc_depth) + 
+    vec4 clip_space_pos = uPMatrix * uMVMatrix * vec4(rayStart, 1.0);
+    float ndc_depth = clip_space_pos.z / clip_space_pos.w;
+    float depth = (((gl_DepthRange.far - gl_DepthRange.near) * ndc_depth) + 
                      gl_DepthRange.near + gl_DepthRange.far) / 2.0;
-      gl_FragDepth = depth;
-    }
-    else
-      gl_FragDepth = gl_DepthRange.far;
+    gl_FragDepth = depth;
 #endif
 }
 

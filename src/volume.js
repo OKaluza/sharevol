@@ -127,9 +127,9 @@ function Volume(props, image, mobile, parentEl) {
   if (this.program.errors) OK.debug(this.program.errors);
   this.program.setup(["aVertexPosition"], 
                      ["uBackCoord", "uVolume", "uTransferFunction", "uEnableColour", "uFilter",
-                      "uDensityFactor", "uPower", "uBrightness", "uContrast", "uSamples",
-                      "uFocalLength", "uWindowSize", "uBBMin", "uBBMax", "uResolution",
-                      "uIsoValue", "uIsoColour", "uIsoSmooth", "uIsoWalls"]);
+                      "uDensityFactor", "uPower", "uSaturation", "uBrightness", "uContrast", "uSamples",
+                      "uViewport", "uBBMin", "uBBMax", "uResolution", "uRange", "uDenMinMax",
+                      "uIsoValue", "uIsoColour", "uIsoSmooth", "uIsoWalls", "uInvPMatrix"]);
 
   this.gl.enable(this.gl.DEPTH_TEST);
   this.gl.clearColor(0, 0, 0, 0);
@@ -152,6 +152,7 @@ function Volume(props, image, mobile, parentEl) {
   this.properties.xmax = this.properties.ymax = this.properties.zmax = 1.0;
 
   this.properties.density = 10.0;
+  this.properties.saturation = 1.0;
   this.properties.brightness = 0.0;
   this.properties.contrast = 1.0;
   this.properties.power = 1.0;
@@ -212,7 +213,8 @@ Volume.prototype.addGUI = function(gui) {
   f.add(this.properties, 'samples', 32, 1024, 32);
   f.add(this.properties, 'density', 0.0, 50.0, 1.0);
   f.add(this.properties, 'brightness', -1.0, 1.0, 0.05);
-  f.add(this.properties, 'contrast', 0.0, 3.0, 0.05);
+  f.add(this.properties, 'contrast', 0.0, 2.0, 0.05);
+  f.add(this.properties, 'saturation', 0.0, 2.0, 0.05);
   f.add(this.properties, 'power', 0.01, 5.0, 0.05);
   f.add(this.properties, 'axes');
   f.add(this.properties, 'border');
@@ -321,10 +323,13 @@ Volume.prototype.draw = function(lowquality, testmode) {
   if (this.properties.axes) this.drawAxis(1.0);
   if (this.properties.border) this.drawBox(1.0);
 
-  this.camera();
 
   //Volume render (skip while interacting if lowpower device flag is set)
   if (!(lowquality && this.properties.lowPowerDevice)) {
+    //Setup volume camera
+    this.webgl.modelView.push();
+    this.rayCamera();
+  
     this.webgl.use(this.program);
     this.webgl.modelView.scale(this.scaling);  //Apply scaling
       this.gl.disableVertexAttribArray(this.program.attributes["aVertexColour"]);
@@ -342,8 +347,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
     this.gl.uniform1i(this.program.uniforms["uTransferFunction"], 1);
     this.gl.uniform1i(this.program.uniforms["uEnableColour"], this.properties.usecolourmap);
     this.gl.uniform1i(this.program.uniforms["uFilter"], lowquality ? false : this.properties.tricubicFilter);
-    this.gl.uniform1f(this.program.uniforms["uFocalLength"], this.focalLength);
-    this.gl.uniform2fv(this.program.uniforms["uWindowSize"], new Float32Array([this.gl.viewportWidth, this.gl.viewportHeight]));
+    this.gl.uniform4fv(this.program.uniforms["uViewport"], new Float32Array([0, 0, this.gl.viewportWidth, this.gl.viewportHeight]));
 
     var bbmin = [this.properties.xmin, this.properties.ymin, this.properties.zmin];
     var bbmax = [this.properties.xmax, this.properties.ymax, this.properties.zmax];
@@ -353,6 +357,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
 
     this.gl.uniform1f(this.program.uniforms["uDensityFactor"], this.properties.density);
     // brightness and contrast
+    this.gl.uniform1f(this.program.uniforms["uSaturation"], this.properties.saturation);
     this.gl.uniform1f(this.program.uniforms["uBrightness"], this.properties.brightness);
     this.gl.uniform1f(this.program.uniforms["uContrast"], this.properties.contrast);
     this.gl.uniform1f(this.program.uniforms["uPower"], this.properties.power);
@@ -364,13 +369,14 @@ Volume.prototype.draw = function(lowquality, testmode) {
     this.gl.uniform1f(this.program.uniforms["uIsoSmooth"], this.properties.isosmooth);
     this.gl.uniform1i(this.program.uniforms["uIsoWalls"], this.properties.isowalls);
 
-    //Clip Plane
-    //this.gl.uniform4fv(this.program.uniforms["uClipPlane"], new Float32Array([0, 1, 0, 7]));
-    //this.gl.uniform3fv(this.program.uniforms["uScaling"], new Float32Array(this.scaling));
-    //this.gl.uniform3fv(this.program.uniforms["uScaling"], new Float32Array([1,1,1]));
+    //Data value range (default only for now)
+    this.gl.uniform2fv(this.program.uniforms["uRange"], new Float32Array([0.0, 1.0]));
+    //Density clip range (default only for now)
+    this.gl.uniform2fv(this.program.uniforms["uDenMinMax"], new Float32Array([0.0, 1.0]));
 
     //Draw two triangles
-    this.webgl.initDraw2d();
+    this.webgl.initDraw2d(); //This sends the matrices, uNMatrix may not be correct here though
+    this.gl.uniformMatrix4fv(this.program.uniforms["uInvPMatrix"], false, this.invPMatrix);
     //this.gl.enableVertexAttribArray(this.program.attributes["aVertexPosition"]);
     //this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.webgl.vertexPositionBuffer);
     //this.gl.vertexAttribPointer(this.program.attributes["aVertexPosition"], this.webgl.vertexPositionBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
@@ -378,6 +384,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
 
     this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.webgl.vertexPositionBuffer.numItems);
 
+    this.webgl.modelView.pop();
   } else {
     //Always draw axis even if turned off to show interaction
     if (!this.properties.axes) this.drawAxis(1.0);
@@ -442,8 +449,31 @@ Volume.prototype.camera = function() {
   // Translate back by centre of model to align eye with model centre
   this.webgl.modelView.translate([-this.focus[0], -this.focus[1], -this.focus[2] * this.orientation]);
 
-  //Perspective matrix (not required for volume render pass)
+  //Perspective matrix
   this.webgl.setPerspective(this.fov, this.gl.viewportWidth / this.gl.viewportHeight, 0.1, 100.0);
+}
+
+Volume.prototype.rayCamera = function() {
+  //Apply translation to origin, any rotation and scaling
+  this.webgl.modelView.identity()
+  this.webgl.modelView.translate(this.translate)
+
+  // rotate model 
+  var rotmat = quat4.toMat4(this.rotate);
+  this.webgl.modelView.mult(rotmat);
+  //this.webgl.modelView.mult(this.rotate);
+
+  //For a volume cube other than [0,0,0] - [1,1,1], need to translate/scale here...
+  //glTranslatef(-dims[0]*0.5, -dims[1]*0.5, -dims[2]*0.5);  //Translate to origin
+  //glScalef(1.0/dims[0], 1.0/dims[1], 1.0/dims[2]);
+  this.webgl.modelView.translate([-0.5, -0.5, -0.5]);  //Translate to origin
+
+  //Perspective matrix
+  this.webgl.setPerspective(this.fov, this.gl.viewportWidth / this.gl.viewportHeight, 0.1, 100.0);
+
+  //Get inverted matrix for volume shader
+  this.invPMatrix = mat4.create(this.webgl.perspective.matrix);
+  mat4.inverse(this.invPMatrix);
 }
 
 Volume.prototype.drawAxis = function(alpha) {

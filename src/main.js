@@ -160,6 +160,7 @@ function getData(compact, matrix) {
   if (volume) {
     var vdat = volume.get(matrix);
     var object = state.objects[0];
+    object.saturation = vdat.properties.saturation;
     object.brightness = vdat.properties.brightness;
     object.contrast = vdat.properties.contrast;
     object.zmin = vdat.properties.zmin;
