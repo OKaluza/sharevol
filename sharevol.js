@@ -7139,7 +7139,7 @@ var OK = (function () {
 
   ok.debug_on = false;
   ok.debug = function(str) {
-      //if (!ok.debug_on) return;
+      if (!ok.debug_on) return;
       var uconsole = document.getElementById('console');
       if (uconsole)
         uconsole.innerHTML = "<div style=\"font-family: 'monospace'; font-size: 8pt;\">" + str + "</div>" + uconsole.innerHTML;
@@ -9870,18 +9870,23 @@ function Volume(props, image, mobile, parentEl) {
   this.resolution = props.volume["res"];
 
   //Calculated scaling
-  this.scaling = [props.volume["res"][0] * props.volume["scale"][0], 
-                  props.volume["res"][1] * props.volume["scale"][1],
-                  props.volume["res"][2] * props.volume["scale"][2]];
-  this.tiles = [this.image.width / props.volume["res"][0],
-                this.image.height / props.volume["res"][1]];
-  var maxn = props.volume["res"][2];
-  this.scaling = [maxn / this.scaling[0], maxn / this.scaling[1], maxn / this.scaling[2]]
+  this.res = props.volume["res"];
+  this.dims = props.volume["scale"];
+  this.scaling = this.dims;
+  //Auto compensate for differences in resolution..
+  if (props.volume.autoscale) {
+    //Divide all by the highest res
+    var maxn = Math.max.apply(null, this.res);
+    this.scaling = [this.res[0] / maxn * this.dims[0], 
+                    this.res[1] / maxn * this.dims[1],
+                    this.res[2] / maxn * this.dims[2]];
+  }
+  this.tiles = [this.image.width / this.res[0],
+                this.image.height / this.res[1]];
+  this.iscale = [1.0 / this.scaling[0], 1.0 / this.scaling[1], 1.0 / this.scaling[2]]
 
   //Set dims
-  //Inverse the scaling factors, used to correct focus/centre of rotation
-  this.centre = [0.5/this.scaling[0], 0.5/this.scaling[1], 0.5/this.scaling[2]];
-  //this.centre = [0.5, 0.5, 0.5];
+  this.centre = [0.5*this.scaling[0], 0.5*this.scaling[1], 0.5*this.scaling[2]];
   this.modelsize = Math.sqrt(3);
   this.focus = this.centre;
 
@@ -10134,14 +10139,12 @@ Volume.prototype.draw = function(lowquality, testmode) {
   //this.width = this.height = 0;
   //console.log(this.width + "," + this.height);
 
-  this.camera();
+  this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+  this.gl.viewport(this.webgl.viewport.x, this.webgl.viewport.y, this.webgl.viewport.width, this.webgl.viewport.height);
 
-      this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-      this.gl.viewport(this.webgl.viewport.x, this.webgl.viewport.y, this.webgl.viewport.width, this.webgl.viewport.height);
-
-  if (this.properties.axes) this.drawAxis(1.0);
+  //box/axes draw fully opaque behind volume
   if (this.properties.border) this.drawBox(1.0);
-
+  if (this.properties.axes) this.drawAxis(1.0);
 
   //Volume render (skip while interacting if lowpower device flag is set)
   if (!(lowquality && this.properties.lowPowerDevice)) {
@@ -10150,7 +10153,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
     this.rayCamera();
   
     this.webgl.use(this.program);
-    this.webgl.modelView.scale(this.scaling);  //Apply scaling
+    //this.webgl.modelView.scale(this.scaling);  //Apply scaling
       this.gl.disableVertexAttribArray(this.program.attributes["aVertexColour"]);
 
     this.gl.activeTexture(this.gl.TEXTURE0);
@@ -10213,17 +10216,10 @@ Volume.prototype.draw = function(lowquality, testmode) {
 
   //this.timeAction("Render", this.time);
 
-  if (this.properties.axes) {
-    this.gl.clear(this.gl.DEPTH_BUFFER_BIT);
-    this.camera();
-    this.drawAxis(0.2);
-  }
-
-  if (this.properties.border) {
-    //Bounding box
-    this.camera();
-    this.drawBox(0.2);
-  }
+  //Draw box/axes again as overlay (near transparent)
+  this.gl.clear(this.gl.DEPTH_BUFFER_BIT);
+  if (this.properties.axes) this.drawAxis(0.2);
+  if (this.properties.border) this.drawBox(0.2);
 
   //Running speed test?
   if (testmode) {
@@ -10280,12 +10276,11 @@ Volume.prototype.rayCamera = function() {
   // rotate model 
   var rotmat = quat4.toMat4(this.rotate);
   this.webgl.modelView.mult(rotmat);
-  //this.webgl.modelView.mult(this.rotate);
 
   //For a volume cube other than [0,0,0] - [1,1,1], need to translate/scale here...
-  //glTranslatef(-dims[0]*0.5, -dims[1]*0.5, -dims[2]*0.5);  //Translate to origin
-  //glScalef(1.0/dims[0], 1.0/dims[1], 1.0/dims[2]);
-  this.webgl.modelView.translate([-0.5, -0.5, -0.5]);  //Translate to origin
+  this.webgl.modelView.translate([-this.scaling[0]*0.5, -this.scaling[1]*0.5, -this.scaling[2]*0.5]);  //Translate to origin
+  //Inverse of scaling
+  this.webgl.modelView.scale([this.iscale[0], this.iscale[1], this.iscale[2]]);
 
   //Perspective matrix
   this.webgl.setPerspective(this.fov, this.gl.viewportWidth / this.gl.viewportHeight, 0.1, 100.0);
@@ -10296,6 +10291,7 @@ Volume.prototype.rayCamera = function() {
 }
 
 Volume.prototype.drawAxis = function(alpha) {
+  this.camera();
   this.webgl.use(this.lineprogram);
   this.gl.uniform1f(this.lineprogram.uniforms["uAlpha"], alpha);
   this.gl.uniform4fv(this.lineprogram.uniforms["uColour"], new Float32Array([1.0, 1.0, 1.0, 0.0]));
@@ -10309,11 +10305,11 @@ Volume.prototype.drawAxis = function(alpha) {
   this.gl.vertexAttribPointer(this.lineprogram.attributes["aVertexColour"], this.lineColourBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
 
   //Axis position, default centre, use slicer positions if available
-  var pos = [0.5/this.scaling[0], 0.5/this.scaling[1], 0.5/this.scaling[2]];
+  var pos = [0.5*this.scaling[0], 0.5*this.scaling[1], 0.5*this.scaling[2]];
   if (this.slicer) {
-    pos = [this.slicer.slices[0]/this.scaling[0], 
-           this.slicer.slices[1]/this.scaling[1],
-           this.slicer.slices[2]/this.scaling[2]];
+    pos = [this.slicer.slices[0]*this.scaling[0], 
+           this.slicer.slices[1]*this.scaling[1],
+           this.slicer.slices[2]*this.scaling[2]];
   }
   this.webgl.modelView.translate(pos);
   this.webgl.setMatrices();
@@ -10322,6 +10318,7 @@ Volume.prototype.drawAxis = function(alpha) {
 }
 
 Volume.prototype.drawBox = function(alpha) {
+  this.camera();
   this.webgl.use(this.lineprogram);
   this.gl.uniform1f(this.lineprogram.uniforms["uAlpha"], alpha);
   this.gl.uniform4fv(this.lineprogram.uniforms["uColour"], this.borderColour.rgbaGL());
@@ -10332,8 +10329,7 @@ Volume.prototype.drawBox = function(alpha) {
   this.gl.vertexAttribPointer(this.lineprogram.attributes["aVertexPosition"], this.boxPositionBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
     this.gl.vertexAttribPointer(this.lineprogram.attributes["aVertexColour"], 4, this.gl.UNSIGNED_BYTE, true, 0, 0);
 
-    //this.webgl.modelView.scale(this.scaling);  //Apply scaling
-    this.webgl.modelView.scale([1.0/this.scaling[0], 1.0/this.scaling[1], 1.0/this.scaling[2]]);  //Invert scaling
+  this.webgl.modelView.scale(this.scaling);  //Apply scaling
   this.webgl.setMatrices();
   this.gl.drawElements(this.gl.LINES, this.boxIndexBuffer.numItems, this.gl.UNSIGNED_SHORT, 0);
 }
