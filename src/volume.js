@@ -18,7 +18,7 @@
 //Timestepping
 //Superimposed volumes
 
-function Volume(props, image, mobile, parentEl) {
+function Volume(props, image, interactive, parentEl) {
   this.image = image;
   this.canvas = document.createElement("canvas");
   this.canvas.style.cssText = "width: 100%; height: 100%; z-index: 0; margin: 0px; padding: 0px; background: black; border: none; display:block;";
@@ -122,7 +122,7 @@ function Volume(props, image, mobile, parentEl) {
 
   var defines = "precision highp float; const highp vec2 slices = vec2(" + this.tiles[0] + "," + this.tiles[1] + ");\n";
   defines += (IE11 ? "#define IE11\n" : "#define NOT_IE11\n");
-  var maxSamples = mobile ? 256 : 1024;
+  var maxSamples = interactive ? 1024 : 256;
   defines += "const int maxSamples = " + maxSamples + ";\n\n\n\n\n\n"; //Extra newlines so errors in main shader have correct line #
   OK.debug(defines);
 
@@ -161,17 +161,16 @@ function Volume(props, image, mobile, parentEl) {
   this.properties.brightness = 0.0;
   this.properties.contrast = 1.0;
   this.properties.power = 1.0;
+  this.properties.mindensity = props.volume.mindensity || 0.0;
+  this.properties.maxdensity = props.volume.mindensity || 1.0;
   this.properties.usecolourmap = false;
   this.properties.tricubicFilter = false;
-  this.properties.lowPowerDevice = false;
+  this.properties.interactive = interactive;
   this.properties.axes = true;
   this.properties.border = true;
 
   //Load from local storage or previously loaded file
   this.load(props);
-
-  if (mobile) //Low power can be enabled in props by default but not switched off
-    this.properties.lowPowerDevice = true;
 }
 
 Volume.prototype.box = function(min, max) {
@@ -211,7 +210,7 @@ Volume.prototype.addGUI = function(gui) {
   this.gui = gui;
 
   var f = this.gui.addFolder('Volume');
-  f.add(this.properties, 'lowPowerDevice');
+  f.add(this.properties, 'interactive');
   f.add(this.properties, 'usecolourmap');
   this.properties.samples = Math.floor(this.properties.samples);
   if (this.properties.samples % 32 > 0) this.properties.samples -= this.properties.samples % 32;
@@ -221,6 +220,8 @@ Volume.prototype.addGUI = function(gui) {
   f.add(this.properties, 'contrast', 0.0, 2.0, 0.05);
   f.add(this.properties, 'saturation', 0.0, 2.0, 0.05);
   f.add(this.properties, 'power', 0.01, 5.0, 0.05);
+  f.add(this.properties, 'mindensity', 0.0, 1.0, 0.0);
+  f.add(this.properties, 'maxdensity', 0.0, 1.0, 1.0);
   f.add(this.properties, 'axes');
   f.add(this.properties, 'border');
   f.add(this.properties, 'tricubicFilter');
@@ -328,7 +329,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
   if (this.properties.axes) this.drawAxis(1.0);
 
   //Volume render (skip while interacting if lowpower device flag is set)
-  if (!(lowquality && this.properties.lowPowerDevice)) {
+  if (!(lowquality && !this.properties.interactive)) {
     //Setup volume camera
     this.webgl.modelView.push();
     this.rayCamera();
@@ -374,8 +375,8 @@ Volume.prototype.draw = function(lowquality, testmode) {
 
     //Data value range (default only for now)
     this.gl.uniform2fv(this.program.uniforms["uRange"], new Float32Array([0.0, 1.0]));
-    //Density clip range (default only for now)
-    this.gl.uniform2fv(this.program.uniforms["uDenMinMax"], new Float32Array([0.0, 1.0]));
+    //Density clip range
+    this.gl.uniform2fv(this.program.uniforms["uDenMinMax"], new Float32Array([this.properties.mindensity, this.properties.maxdensity]));
 
     //Draw two triangles
     this.webgl.initDraw2d(); //This sends the matrices, uNMatrix may not be correct here though

@@ -255,7 +255,9 @@ function imageLoaded(image) {
 
   //Create the volume viewer
   if (state.objects[0].volume) {
-    volume = new Volume(state.objects[0], image, mobile);
+    interactive = true;
+    if (mobile || state.properties.interactive == false) interactive = false;
+    volume = new Volume(state.objects[0], image, interactive);
     volume.slicer = slicer; //For axis position
   }
 
