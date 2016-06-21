@@ -18,7 +18,7 @@
 //Timestepping
 //Superimposed volumes
 
-function Volume(props, image, mobile, parentEl) {
+function Volume(props, image, interactive, parentEl) {
   this.image = image;
   this.canvas = document.createElement("canvas");
   this.canvas.style.cssText = "width: 100%; height: 100%; z-index: 0; margin: 0px; padding: 0px; background: black; border: none; display:block;";
@@ -48,21 +48,26 @@ function Volume(props, image, mobile, parentEl) {
   this.orientation = 1.0; //1.0 for RH, -1.0 for LH
   this.fov = 45.0;
   this.focalLength = 1.0 / Math.tan(0.5 * this.fov * Math.PI/180);
-  this.resolution = props["res"];
+  this.resolution = props.volume["res"];
 
   //Calculated scaling
-  this.scaling = [props["res"][0] * props["scale"][0], 
-                  props["res"][1] * props["scale"][1],
-                  props["res"][2] * props["scale"][2]];
-  this.tiles = [this.image.width / props["res"][0],
-                this.image.height / props["res"][1]];
-  var maxn = props["res"][2];
-  this.scaling = [maxn / this.scaling[0], maxn / this.scaling[1], maxn / this.scaling[2]]
+  this.res = props.volume["res"];
+  this.dims = props.volume["scale"];
+  this.scaling = this.dims;
+  //Auto compensate for differences in resolution..
+  if (props.volume.autoscale) {
+    //Divide all by the highest res
+    var maxn = Math.max.apply(null, this.res);
+    this.scaling = [this.res[0] / maxn * this.dims[0], 
+                    this.res[1] / maxn * this.dims[1],
+                    this.res[2] / maxn * this.dims[2]];
+  }
+  this.tiles = [this.image.width / this.res[0],
+                this.image.height / this.res[1]];
+  this.iscale = [1.0 / this.scaling[0], 1.0 / this.scaling[1], 1.0 / this.scaling[2]]
 
   //Set dims
-  //Inverse the scaling factors, used to correct focus/centre of rotation
-  this.centre = [0.5/this.scaling[0], 0.5/this.scaling[1], 0.5/this.scaling[2]];
-  //this.centre = [0.5, 0.5, 0.5];
+  this.centre = [0.5*this.scaling[0], 0.5*this.scaling[1], 0.5*this.scaling[2]];
   this.modelsize = Math.sqrt(3);
   this.focus = this.centre;
 
@@ -117,19 +122,19 @@ function Volume(props, image, mobile, parentEl) {
 
   var defines = "precision highp float; const highp vec2 slices = vec2(" + this.tiles[0] + "," + this.tiles[1] + ");\n";
   defines += (IE11 ? "#define IE11\n" : "#define NOT_IE11\n");
-  var maxSamples = mobile ? 256 : 1024;
+  var maxSamples = interactive ? 1024 : 256;
   defines += "const int maxSamples = " + maxSamples + ";\n\n\n\n\n\n"; //Extra newlines so errors in main shader have correct line #
   OK.debug(defines);
 
-  var fs = getSourceFromElement('ray-fs');
-  this.program = new WebGLProgram(this.gl, 'ray-vs', defines + fs);
+  var fs = getSourceFromElement('volume-fs');
+  this.program = new WebGLProgram(this.gl, 'volume-vs', defines + fs);
    //console.log(defines + fs);
   if (this.program.errors) OK.debug(this.program.errors);
   this.program.setup(["aVertexPosition"], 
                      ["uBackCoord", "uVolume", "uTransferFunction", "uEnableColour", "uFilter",
-                      "uDensityFactor", "uPower", "uBrightness", "uContrast", "uSamples",
-                      "uFocalLength", "uWindowSize", "uBBMin", "uBBMax", "uResolution",
-                      "uIsoValue", "uIsoColour", "uIsoSmooth", "uIsoWalls"]);
+                      "uDensityFactor", "uPower", "uSaturation", "uBrightness", "uContrast", "uSamples",
+                      "uViewport", "uBBMin", "uBBMax", "uResolution", "uRange", "uDenMinMax",
+                      "uIsoValue", "uIsoColour", "uIsoSmooth", "uIsoWalls", "uInvPMatrix"]);
 
   this.gl.enable(this.gl.DEPTH_TEST);
   this.gl.clearColor(0, 0, 0, 0);
@@ -143,29 +148,29 @@ function Volume(props, image, mobile, parentEl) {
 
   this.properties.samples = 256;
   this.properties.isovalue = 0.0;
-  this.properties.drawWalls = false;
+  this.properties.isowalls = false;
   this.properties.isoalpha = 0.75;
   this.properties.isosmooth = 1.0;
-  this.properties.isocolour = [214, 188, 86];
+  this.properties.colour = [214, 188, 86];
 
-  this.properties.Xmin = this.properties.Ymin = this.properties.Zmin = 0.0;
-  this.properties.Xmax = this.properties.Ymax = this.properties.Zmax = 1.0;
+  this.properties.xmin = this.properties.ymin = this.properties.zmin = 0.0;
+  this.properties.xmax = this.properties.ymax = this.properties.zmax = 1.0;
 
   this.properties.density = 10.0;
+  this.properties.saturation = 1.0;
   this.properties.brightness = 0.0;
   this.properties.contrast = 1.0;
   this.properties.power = 1.0;
+  this.properties.mindensity = props.volume.mindensity || 0.0;
+  this.properties.maxdensity = props.volume.mindensity || 1.0;
   this.properties.usecolourmap = false;
   this.properties.tricubicFilter = false;
-  this.properties.lowPowerDevice = false;
+  this.properties.interactive = interactive;
   this.properties.axes = true;
   this.properties.border = true;
 
   //Load from local storage or previously loaded file
-  if (props.volume) this.load(props.volume);
-
-  if (mobile) //Low power can be enabled in props by default but not switched off
-    this.properties.lowPowerDevice = true;
+  this.load(props);
 }
 
 Volume.prototype.box = function(min, max) {
@@ -205,15 +210,18 @@ Volume.prototype.addGUI = function(gui) {
   this.gui = gui;
 
   var f = this.gui.addFolder('Volume');
-  f.add(this.properties, 'lowPowerDevice');
+  f.add(this.properties, 'interactive');
   f.add(this.properties, 'usecolourmap');
   this.properties.samples = Math.floor(this.properties.samples);
   if (this.properties.samples % 32 > 0) this.properties.samples -= this.properties.samples % 32;
   f.add(this.properties, 'samples', 32, 1024, 32);
   f.add(this.properties, 'density', 0.0, 50.0, 1.0);
   f.add(this.properties, 'brightness', -1.0, 1.0, 0.05);
-  f.add(this.properties, 'contrast', 0.0, 3.0, 0.05);
+  f.add(this.properties, 'contrast', 0.0, 2.0, 0.05);
+  f.add(this.properties, 'saturation', 0.0, 2.0, 0.05);
   f.add(this.properties, 'power', 0.01, 5.0, 0.05);
+  f.add(this.properties, 'mindensity', 0.0, 1.0, 0.0);
+  f.add(this.properties, 'maxdensity', 0.0, 1.0, 1.0);
   f.add(this.properties, 'axes');
   f.add(this.properties, 'border');
   f.add(this.properties, 'tricubicFilter');
@@ -222,21 +230,21 @@ Volume.prototype.addGUI = function(gui) {
 
   //Clip planes folder
   var f0 = this.gui.addFolder('Clip planes');
-  f0.add(this.properties, 'Xmin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setX(l);});
-  f0.add(this.properties, 'Xmax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setX(l);});
-  f0.add(this.properties, 'Ymin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setY(l);});
-  f0.add(this.properties, 'Ymax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setY(l);});
-  f0.add(this.properties, 'Zmin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setZ(l);});
-  f0.add(this.properties, 'Zmax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setZ(l);});
+  f0.add(this.properties, 'xmin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setX(l);});
+  f0.add(this.properties, 'xmax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setX(l);});
+  f0.add(this.properties, 'ymin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setY(l);});
+  f0.add(this.properties, 'ymax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setY(l);});
+  f0.add(this.properties, 'zmin', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setZ(l);});
+  f0.add(this.properties, 'zmax', 0.0, 1.0, 0.01);//.onFinishChange(function(l) {if (slicer) slicer.setZ(l);});
   //f0.open();
 
   //Isosurfaces folder
   var f1 = this.gui.addFolder('Isosurface');
   f1.add(this.properties, 'isovalue', 0.0, 1.0, 0.01);
-  f1.add(this.properties, 'drawWalls');
+  f1.add(this.properties, 'isowalls');
   f1.add(this.properties, 'isoalpha', 0.0, 1.0, 0.01);
   f1.add(this.properties, 'isosmooth', 0.1, 3.0, 0.1);
-  f1.addColor(this.properties, 'isocolour');
+  f1.addColor(this.properties, 'colour');
   //f1.open();
 
   // Iterate over all controllers and set change function
@@ -251,23 +259,24 @@ Volume.prototype.addGUI = function(gui) {
 }
 
 Volume.prototype.load = function(src) {
-  colours.read(src.colourmap);
-  colours.update();
-  for (var key in src.properties)
-    this.properties[key] = src.properties[key]
+  for (var key in src)
+    this.properties[key] = src[key]
 
-  if (src.translate) this.translate = src.translate;
+  if (src.colourmap != undefined) this.properties.usecolourmap = true;
+  this.properties.axes = state.views[0].axes;
+  this.properties.border = state.views[0].border;
+  this.properties.tricubicFilter = src.tricubicfilter;
+
+  if (state.views[0].translate) this.translate = state.views[0].translate;
   //Initial rotation (Euler angles or quaternion accepted)
-  if (src.rotate) {
-    if (src.rotate.length == 3) {
-      this.rotateZ(-src.rotate[2]);
-      this.rotateY(-src.rotate[1]);
-      this.rotateX(-src.rotate[0]);
-    } else if (src.rotate[3] != 0)
-      this.rotate = quat4.create(src.rotate);    
+  if (state.views[0].rotate) {
+    if (state.views[0].rotate.length == 3) {
+      this.rotateZ(-state.views[0].rotate[2]);
+      this.rotateY(-state.views[0].rotate[1]);
+      this.rotateX(-state.views[0].rotate[0]);
+    } else if (state.views[0].rotate[3] != 0)
+      this.rotate = quat4.create(state.views[0].rotate);    
   }
-  //this.focus = src.focus;
-  //this.centre = src.centre;
 }
 
 Volume.prototype.get = function(matrix) {
@@ -280,9 +289,6 @@ Volume.prototype.get = function(matrix) {
     data.translate = this.translate;
     data.rotate = [this.rotate[0], this.rotate[1], this.rotate[2], this.rotate[3]];
   }
-  //data.focus = this.focus;
-  //data.centre = this.centre;
-  data.colourmap = colours.palette.toString();
   data.properties = this.properties;
   return data;
 }
@@ -315,20 +321,21 @@ Volume.prototype.draw = function(lowquality, testmode) {
   //this.width = this.height = 0;
   //console.log(this.width + "," + this.height);
 
-  this.camera();
+  this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+  this.gl.viewport(this.webgl.viewport.x, this.webgl.viewport.y, this.webgl.viewport.width, this.webgl.viewport.height);
 
-      this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-      this.gl.viewport(this.webgl.viewport.x, this.webgl.viewport.y, this.webgl.viewport.width, this.webgl.viewport.height);
-
-  if (this.properties.axes) this.drawAxis(1.0);
+  //box/axes draw fully opaque behind volume
   if (this.properties.border) this.drawBox(1.0);
-
-  this.camera();
+  if (this.properties.axes) this.drawAxis(1.0);
 
   //Volume render (skip while interacting if lowpower device flag is set)
-  if (!(lowquality && this.properties.lowPowerDevice)) {
+  if (!(lowquality && !this.properties.interactive)) {
+    //Setup volume camera
+    this.webgl.modelView.push();
+    this.rayCamera();
+  
     this.webgl.use(this.program);
-    this.webgl.modelView.scale(this.scaling);  //Apply scaling
+    //this.webgl.modelView.scale(this.scaling);  //Apply scaling
       this.gl.disableVertexAttribArray(this.program.attributes["aVertexColour"]);
 
     this.gl.activeTexture(this.gl.TEXTURE0);
@@ -344,35 +351,36 @@ Volume.prototype.draw = function(lowquality, testmode) {
     this.gl.uniform1i(this.program.uniforms["uTransferFunction"], 1);
     this.gl.uniform1i(this.program.uniforms["uEnableColour"], this.properties.usecolourmap);
     this.gl.uniform1i(this.program.uniforms["uFilter"], lowquality ? false : this.properties.tricubicFilter);
-    this.gl.uniform1f(this.program.uniforms["uFocalLength"], this.focalLength);
-    this.gl.uniform2fv(this.program.uniforms["uWindowSize"], new Float32Array([this.gl.viewportWidth, this.gl.viewportHeight]));
+    this.gl.uniform4fv(this.program.uniforms["uViewport"], new Float32Array([0, 0, this.gl.viewportWidth, this.gl.viewportHeight]));
 
-    var bbmin = [this.properties.Xmin, this.properties.Ymin, this.properties.Zmin];
-    var bbmax = [this.properties.Xmax, this.properties.Ymax, this.properties.Zmax];
+    var bbmin = [this.properties.xmin, this.properties.ymin, this.properties.zmin];
+    var bbmax = [this.properties.xmax, this.properties.ymax, this.properties.zmax];
     this.gl.uniform3fv(this.program.uniforms["uBBMin"], new Float32Array(bbmin));
     this.gl.uniform3fv(this.program.uniforms["uBBMax"], new Float32Array(bbmax));
     this.gl.uniform3fv(this.program.uniforms["uResolution"], new Float32Array(this.resolution));
 
     this.gl.uniform1f(this.program.uniforms["uDensityFactor"], this.properties.density);
     // brightness and contrast
+    this.gl.uniform1f(this.program.uniforms["uSaturation"], this.properties.saturation);
     this.gl.uniform1f(this.program.uniforms["uBrightness"], this.properties.brightness);
     this.gl.uniform1f(this.program.uniforms["uContrast"], this.properties.contrast);
     this.gl.uniform1f(this.program.uniforms["uPower"], this.properties.power);
 
     this.gl.uniform1f(this.program.uniforms["uIsoValue"], this.properties.isovalue);
-    var colour = new Colour(this.properties.isocolour);
+    var colour = new Colour(this.properties.colour);
     colour.alpha = this.properties.isoalpha;
     this.gl.uniform4fv(this.program.uniforms["uIsoColour"], colour.rgbaGL());
     this.gl.uniform1f(this.program.uniforms["uIsoSmooth"], this.properties.isosmooth);
-    this.gl.uniform1i(this.program.uniforms["uIsoWalls"], this.properties.drawWalls);
+    this.gl.uniform1i(this.program.uniforms["uIsoWalls"], this.properties.isowalls);
 
-    //Clip Plane
-    //this.gl.uniform4fv(this.program.uniforms["uClipPlane"], new Float32Array([0, 1, 0, 7]));
-    //this.gl.uniform3fv(this.program.uniforms["uScaling"], new Float32Array(this.scaling));
-    //this.gl.uniform3fv(this.program.uniforms["uScaling"], new Float32Array([1,1,1]));
+    //Data value range (default only for now)
+    this.gl.uniform2fv(this.program.uniforms["uRange"], new Float32Array([0.0, 1.0]));
+    //Density clip range
+    this.gl.uniform2fv(this.program.uniforms["uDenMinMax"], new Float32Array([this.properties.mindensity, this.properties.maxdensity]));
 
     //Draw two triangles
-    this.webgl.initDraw2d();
+    this.webgl.initDraw2d(); //This sends the matrices, uNMatrix may not be correct here though
+    this.gl.uniformMatrix4fv(this.program.uniforms["uInvPMatrix"], false, this.invPMatrix);
     //this.gl.enableVertexAttribArray(this.program.attributes["aVertexPosition"]);
     //this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.webgl.vertexPositionBuffer);
     //this.gl.vertexAttribPointer(this.program.attributes["aVertexPosition"], this.webgl.vertexPositionBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
@@ -380,6 +388,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
 
     this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.webgl.vertexPositionBuffer.numItems);
 
+    this.webgl.modelView.pop();
   } else {
     //Always draw axis even if turned off to show interaction
     if (!this.properties.axes) this.drawAxis(1.0);
@@ -389,17 +398,10 @@ Volume.prototype.draw = function(lowquality, testmode) {
 
   //this.timeAction("Render", this.time);
 
-  if (this.properties.axes) {
-    this.gl.clear(this.gl.DEPTH_BUFFER_BIT);
-    this.camera();
-    this.drawAxis(0.2);
-  }
-
-  if (this.properties.border) {
-    //Bounding box
-    this.camera();
-    this.drawBox(0.2);
-  }
+  //Draw box/axes again as overlay (near transparent)
+  this.gl.clear(this.gl.DEPTH_BUFFER_BIT);
+  if (this.properties.axes) this.drawAxis(0.2);
+  if (this.properties.border) this.drawBox(0.2);
 
   //Running speed test?
   if (testmode) {
@@ -444,11 +446,34 @@ Volume.prototype.camera = function() {
   // Translate back by centre of model to align eye with model centre
   this.webgl.modelView.translate([-this.focus[0], -this.focus[1], -this.focus[2] * this.orientation]);
 
-  //Perspective matrix (not required for volume render pass)
+  //Perspective matrix
   this.webgl.setPerspective(this.fov, this.gl.viewportWidth / this.gl.viewportHeight, 0.1, 100.0);
 }
 
+Volume.prototype.rayCamera = function() {
+  //Apply translation to origin, any rotation and scaling
+  this.webgl.modelView.identity()
+  this.webgl.modelView.translate(this.translate)
+
+  // rotate model 
+  var rotmat = quat4.toMat4(this.rotate);
+  this.webgl.modelView.mult(rotmat);
+
+  //For a volume cube other than [0,0,0] - [1,1,1], need to translate/scale here...
+  this.webgl.modelView.translate([-this.scaling[0]*0.5, -this.scaling[1]*0.5, -this.scaling[2]*0.5]);  //Translate to origin
+  //Inverse of scaling
+  this.webgl.modelView.scale([this.iscale[0], this.iscale[1], this.iscale[2]]);
+
+  //Perspective matrix
+  this.webgl.setPerspective(this.fov, this.gl.viewportWidth / this.gl.viewportHeight, 0.1, 100.0);
+
+  //Get inverted matrix for volume shader
+  this.invPMatrix = mat4.create(this.webgl.perspective.matrix);
+  mat4.inverse(this.invPMatrix);
+}
+
 Volume.prototype.drawAxis = function(alpha) {
+  this.camera();
   this.webgl.use(this.lineprogram);
   this.gl.uniform1f(this.lineprogram.uniforms["uAlpha"], alpha);
   this.gl.uniform4fv(this.lineprogram.uniforms["uColour"], new Float32Array([1.0, 1.0, 1.0, 0.0]));
@@ -462,11 +487,11 @@ Volume.prototype.drawAxis = function(alpha) {
   this.gl.vertexAttribPointer(this.lineprogram.attributes["aVertexColour"], this.lineColourBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
 
   //Axis position, default centre, use slicer positions if available
-  var pos = [0.5/this.scaling[0], 0.5/this.scaling[1], 0.5/this.scaling[2]];
+  var pos = [0.5*this.scaling[0], 0.5*this.scaling[1], 0.5*this.scaling[2]];
   if (this.slicer) {
-    pos = [this.slicer.slices[0]/this.scaling[0], 
-           this.slicer.slices[1]/this.scaling[1],
-           this.slicer.slices[2]/this.scaling[2]];
+    pos = [this.slicer.slices[0]*this.scaling[0], 
+           this.slicer.slices[1]*this.scaling[1],
+           this.slicer.slices[2]*this.scaling[2]];
   }
   this.webgl.modelView.translate(pos);
   this.webgl.setMatrices();
@@ -475,6 +500,7 @@ Volume.prototype.drawAxis = function(alpha) {
 }
 
 Volume.prototype.drawBox = function(alpha) {
+  this.camera();
   this.webgl.use(this.lineprogram);
   this.gl.uniform1f(this.lineprogram.uniforms["uAlpha"], alpha);
   this.gl.uniform4fv(this.lineprogram.uniforms["uColour"], this.borderColour.rgbaGL());
@@ -485,8 +511,7 @@ Volume.prototype.drawBox = function(alpha) {
   this.gl.vertexAttribPointer(this.lineprogram.attributes["aVertexPosition"], this.boxPositionBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
     this.gl.vertexAttribPointer(this.lineprogram.attributes["aVertexColour"], 4, this.gl.UNSIGNED_BYTE, true, 0, 0);
 
-    //this.webgl.modelView.scale(this.scaling);  //Apply scaling
-    this.webgl.modelView.scale([1.0/this.scaling[0], 1.0/this.scaling[1], 1.0/this.scaling[2]]);  //Invert scaling
+  this.webgl.modelView.scale(this.scaling);  //Apply scaling
   this.webgl.setMatrices();
   this.gl.drawElements(this.gl.LINES, this.boxIndexBuffer.numItems, this.gl.UNSIGNED_SHORT, 0);
 }

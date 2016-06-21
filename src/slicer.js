@@ -12,8 +12,10 @@
 
   function Slicer(props, image, filter, parentEl) {
     this.image = image;
-    this.res = props.res;
-    this.dims = [props.res[0] * props.scale[0], props.res[1] * props.scale[1], props.res[2] * props.scale[2]];
+    this.res = props.volume.res;
+    this.dims = [props.volume.res[0] * props.volume.scale[0], 
+                 props.volume.res[1] * props.volume.scale[1], 
+                 props.volume.res[2] * props.volume.scale[2]];
     this.slices = [0.5, 0.5, 0.5];
 
     // Set properties
@@ -36,7 +38,7 @@
     parentEl.appendChild(this.container);
 
     //Load from local storage or previously loaded file
-    if (props.slicer) this.load(props.slicer);
+    if (props.slices) this.load(props.slices);
 
     this.canvas = document.createElement("canvas");
     this.canvas.style.cssText = "position: absolute; bottom: 0px; margin: 0px; padding: 0px; border: none; background: rgba(0,0,0,0); pointer-events: none;";
@@ -261,7 +263,6 @@
     this.webgl.use(this.program);
 
     //Uniform variables
-    this.gl.uniform4fv(this.program.uniforms["background"], colours.palette.colours[0].colour.rgbaGL());
 
     //Gradient texture
     this.gl.activeTexture(this.gl.TEXTURE0);
