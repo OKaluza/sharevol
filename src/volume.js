@@ -161,8 +161,8 @@ function Volume(props, image, interactive, parentEl) {
   this.properties.brightness = 0.0;
   this.properties.contrast = 1.0;
   this.properties.power = 1.0;
-  this.properties.mindensity = props.volume.mindensity || 0.0;
-  this.properties.maxdensity = props.volume.mindensity || 1.0;
+  this.properties.minclip = props.volume.minclip || 0.0;
+  this.properties.maxclip = props.volume.minclip || 1.0;
   this.properties.usecolourmap = false;
   this.properties.tricubicFilter = false;
   this.properties.interactive = interactive;
@@ -220,8 +220,8 @@ Volume.prototype.addGUI = function(gui) {
   f.add(this.properties, 'contrast', 0.0, 2.0, 0.05);
   f.add(this.properties, 'saturation', 0.0, 2.0, 0.05);
   f.add(this.properties, 'power', 0.01, 5.0, 0.05);
-  f.add(this.properties, 'mindensity', 0.0, 1.0, 0.0);
-  f.add(this.properties, 'maxdensity', 0.0, 1.0, 1.0);
+  f.add(this.properties, 'minclip', 0.0, 1.0, 0.0);
+  f.add(this.properties, 'maxclip', 0.0, 1.0, 1.0);
   f.add(this.properties, 'axes');
   f.add(this.properties, 'border');
   f.add(this.properties, 'tricubicFilter');
@@ -376,7 +376,7 @@ Volume.prototype.draw = function(lowquality, testmode) {
     //Data value range (default only for now)
     this.gl.uniform2fv(this.program.uniforms["uRange"], new Float32Array([0.0, 1.0]));
     //Density clip range
-    this.gl.uniform2fv(this.program.uniforms["uDenMinMax"], new Float32Array([this.properties.mindensity, this.properties.maxdensity]));
+    this.gl.uniform2fv(this.program.uniforms["uDenMinMax"], new Float32Array([this.properties.minclip, this.properties.maxclip]));
 
     //Draw two triangles
     this.webgl.initDraw2d(); //This sends the matrices, uNMatrix may not be correct here though

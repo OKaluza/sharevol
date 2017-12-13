@@ -179,6 +179,8 @@ function getData(compact, matrix) {
     object.colour = vdat.properties.colour;
     object.density = vdat.properties.density;
     object.power = vdat.properties.power;
+    object.minclip = parsed.volume.properties.minclip;;
+    object.maxclip = parsed.volume.properties.maxclip;;
     object.tricubicfilter = vdat.properties.tricubicFilter;
     if (vdat.properties.usecolourmap)
       object.colourmap = 0;
